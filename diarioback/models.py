@@ -508,15 +508,7 @@ class Noticia(models.Model):
         return self.visitas.filter(fecha__gte=hace_una_semana).count()
 
     class Meta:
-        ordering = ['-fecha_publicacion']  # Ordenamiento por defecto
-        indexes = [
-            models.Index(fields=['estado', '-fecha_publicacion']),  # Para consultas principales
-            models.Index(fields=['estado', '-contador_visitas']),   # Para más vistas
-            models.Index(fields=['estado', '-contador_visitas_total']),  # Para más leídas
-            models.Index(fields=['estado', 'categorias']),          # Para filtros por categoría
-            models.Index(fields=['fecha_publicacion']),             # Para ordenamiento por fecha
-            models.Index(fields=['slug']),                          # Para búsqueda por slug
-        ]
+        ordering = ['-contador_visitas']  # Ordena por defecto por número de visitas
 
     @staticmethod
     def validate_categorias(value):
