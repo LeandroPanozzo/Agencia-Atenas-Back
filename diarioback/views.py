@@ -1,3 +1,4 @@
+from functools import cache
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from .models import Rol, Trabajador, UserProfile, Usuario, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad, upload_to_imgbb
@@ -474,6 +475,128 @@ class NoticiaViewSet(viewsets.ModelViewSet):
             return Response({
                 'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=False, methods=['get'])
+    def home_data(self, request):
+        """
+        Endpoint súper optimizado que retorna todos los datos necesarios para la home
+        """
+        # Intentar obtener desde cache primero
+        cache_key = 'home_data_v2'
+        cached_data = cache.get(cache_key)
+        
+        if cached_data:
+            return Response(cached_data)
+        
+        # Si no hay cache, generar datos optimizados
+        response_data = self._generate_home_data()
+        
+        # Cachear por 5 minutos (ajusta según necesites)
+        cache.set(cache_key, response_data, timeout=300)
+        
+        return Response(response_data)
+    
+    def _generate_home_data(self):
+        """
+        Genera datos de home de forma optimizada usando consultas paralelas
+        """
+        # Base queryset optimizado
+        base_queryset = self.queryset.select_related('autor', 'estado').filter(estado=3)
+        
+        # Ejecutar consultas en paralelo usando ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Lanzar todas las consultas en paralelo
+            futures = {
+                'featured': executor.submit(self._get_featured_news, base_queryset),
+                'recent': executor.submit(self._get_recent_news, base_queryset),
+                'most_viewed': executor.submit(self._get_most_viewed_news, base_queryset),
+                'sections': executor.submit(self._get_sections_news, base_queryset),
+            }
+            
+            # Recopilar resultados
+            results = {}
+            for key, future in futures.items():
+                try:
+                    results[key] = future.result(timeout=10)  # 10 segundos timeout
+                except Exception as e:
+                    print(f"Error getting {key}: {e}")
+                    results[key] = [] if key != 'sections' else {}
+        
+        return results
+    
+    def _get_featured_news(self, base_queryset):
+        """Obtiene noticias destacadas optimizadas"""
+        return list(base_queryset.only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'mostrar_creditos', 'autor__nombre', 'autor__apellido'
+        ).order_by('-fecha_publicacion')[:12].values(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'mostrar_creditos', 'autor__nombre', 'autor__apellido'
+        ))
+    
+    def _get_recent_news(self, base_queryset):
+        """Obtiene noticias recientes optimizadas"""
+        return list(base_queryset.only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'autor__nombre', 'autor__apellido'
+        ).order_by('-fecha_publicacion')[:5].values(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'autor__nombre', 'autor__apellido'
+        ))
+    
+    def _get_most_viewed_news(self, base_queryset):
+        """Obtiene noticias más vistas optimizadas"""
+        return list(base_queryset.only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'contador_visitas_total', 'autor__nombre', 'autor__apellido'
+        ).order_by('-contador_visitas_total')[:5].values(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'contador_visitas_total', 'autor__nombre', 'autor__apellido'
+        ))
+    
+    def _get_sections_news(self, base_queryset):
+        """Obtiene noticias por secciones usando una consulta por categoría"""
+        categories = [
+            'locales', 'policiales', 'politica y economia', 'provinciales',
+            'nacionales', 'deportes', 'familia', 'internacionales', 'interes general'
+        ]
+        
+        sections = {}
+        
+        # Usar una consulta por categoría (más eficiente que filtrar en memoria)
+        for category in categories:
+            sections[category] = list(
+                base_queryset.filter(categorias__contains=category)
+                .only(
+                    'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+                    'imagen_1', 'categorias', 'contador_visitas', 'autor__nombre', 'autor__apellido'
+                )
+                .order_by('-fecha_publicacion')[:7]
+                .values(
+                    'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+                    'imagen_1', 'categorias', 'contador_visitas', 'autor__nombre', 'autor__apellido'
+                )
+            )
+        
+        return sections
+
+    # Método para invalidar cache cuando se crea/actualiza una noticia
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        self._invalidate_home_cache()
+    
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        self._invalidate_home_cache()
+    
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        self._invalidate_home_cache()
+    
+    def _invalidate_home_cache(self):
+        """Invalida el cache de home cuando hay cambios"""
+        cache.delete('home_data_v2')
+        
 User = get_user_model()
 
 # Vista para el registro de usuarios
