@@ -123,42 +123,44 @@ class NoticiaViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        Customizes the queryset based on query parameters to support efficient filtering.
+        Queryset optimizado con select_related y prefetch_related
         """
-        queryset = Noticia.objects.all()
+        base_queryset = Noticia.objects.select_related(
+            'autor', 'estado'
+        ).prefetch_related(
+            'editores_en_jefe'
+        )
         
-        # Filter by autor
+        # Aplicar filtros solo si se necesitan
         autor = self.request.query_params.get('autor')
         if autor:
-            queryset = queryset.filter(autor=autor)
+            base_queryset = base_queryset.filter(autor=autor)
         
-        # Filter by estado
         estado = self.request.query_params.get('estado')
         if estado:
-            queryset = queryset.filter(estado=estado)
+            base_queryset = base_queryset.filter(estado=estado)
         
-        # Filter by categoria (simplified categories)
         categoria = self.request.query_params.get('categoria')
         if categoria:
             categorias = categoria.split(',')
             if len(categorias) > 1:
+                from django.db.models import Q
                 category_query = Q()
                 for cat in categorias:
                     category_query |= Q(categorias__contains=cat)
-                queryset = queryset.filter(category_query)
+                base_queryset = base_queryset.filter(category_query)
             else:
-                queryset = queryset.filter(categorias__contains=categoria)
+                base_queryset = base_queryset.filter(categorias__contains=categoria)
         
-        # Filter by date range
         fecha_desde = self.request.query_params.get('fecha_desde')
         if fecha_desde:
-            queryset = queryset.filter(fecha_publicacion__gte=fecha_desde)
+            base_queryset = base_queryset.filter(fecha_publicacion__gte=fecha_desde)
             
         fecha_hasta = self.request.query_params.get('fecha_hasta')
         if fecha_hasta:
-            queryset = queryset.filter(fecha_publicacion__lte=fecha_hasta)
+            base_queryset = base_queryset.filter(fecha_publicacion__lte=fecha_hasta)
             
-        return queryset
+        return base_queryset
 
     def list(self, request, *args, **kwargs):
         """Override list method to apply limit after ordering"""
@@ -191,34 +193,42 @@ class NoticiaViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def mas_vistas(self, request):
-        """Return the most viewed news from the past week."""
+        """Versión optimizada de mas_vistas."""
         limit = request.query_params.get('limit', 10)
         try:
             limit = int(limit)
         except ValueError:
             limit = 10
-            
-        hace_una_semana = timezone.now() - timedelta(days=7)
         
-        noticias_mas_vistas = self.queryset.filter(
-            estado=3,
-            ultima_actualizacion_contador__gte=hace_una_semana
+        # Optimizar consulta
+        noticias_mas_vistas = self.queryset.select_related('autor', 'estado').filter(
+            estado=3
+        ).only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'contador_visitas', 'contador_visitas_total',
+            'mostrar_creditos', 'autor__nombre', 'autor__apellido'
         ).order_by('-contador_visitas')[:limit]
         
         serializer = self.get_serializer(noticias_mas_vistas, many=True)
         return Response(serializer.data)
 
+
     @action(detail=False, methods=['get'])
     def mas_leidas(self, request):
-        """Return the most read news of all time."""
+        """Versión optimizada de mas_leidas."""
         limit = request.query_params.get('limit', 10)
         try:
             limit = int(limit)
         except ValueError:
             limit = 10
         
-        noticias_mas_leidas = self.queryset.filter(
+        # Optimizar consulta
+        noticias_mas_leidas = self.queryset.select_related('autor', 'estado').filter(
             estado=3
+        ).only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'contador_visitas_total',
+            'mostrar_creditos', 'autor__nombre', 'autor__apellido'
         ).order_by('-contador_visitas_total')[:limit]
         
         serializer = self.get_serializer(noticias_mas_leidas, many=True)
@@ -253,15 +263,19 @@ class NoticiaViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def recientes(self, request):
-        """Return the most recent news."""
+        """Versión optimizada de recientes."""
         limit = request.query_params.get('limit', 5)
         try:
             limit = int(limit)
         except ValueError:
             limit = 5
-            
-        noticias_recientes = self.queryset.filter(
+        
+        # Optimizar consulta
+        noticias_recientes = self.queryset.select_related('autor', 'estado').filter(
             estado=3
+        ).only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'mostrar_creditos', 'autor__nombre', 'autor__apellido'
         ).order_by('-fecha_publicacion')[:limit]
         
         serializer = self.get_serializer(noticias_recientes, many=True)
@@ -269,15 +283,19 @@ class NoticiaViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def destacadas(self, request):
-        """Return featured news for the carousel."""
+        """Versión optimizada de destacadas."""
         limit = request.query_params.get('limit', 12)
         try:
             limit = int(limit)
         except ValueError:
             limit = 12
-            
-        noticias_destacadas = self.queryset.filter(
+        
+        # Optimizar consulta
+        noticias_destacadas = self.queryset.select_related('autor', 'estado').filter(
             estado=3
+        ).only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'mostrar_creditos', 'autor__nombre', 'autor__apellido'
         ).order_by('-fecha_publicacion')[:limit]
         
         serializer = self.get_serializer(noticias_destacadas, many=True)
@@ -330,17 +348,21 @@ class NoticiaViewSet(viewsets.ModelViewSet):
         return self._get_category_news(request, 'interes general')
 
     def _get_category_news(self, request, category):
-        """Helper method to get news for a specific category."""
+        """Helper method optimizado para obtener noticias por categoría."""
         limit = request.query_params.get('limit', 7)
         try:
             limit = int(limit)
         except ValueError:
             limit = 7
-            
-        # Simple category filter
-        category_news = self.queryset.filter(
+        
+        # Usar select_related para optimizar
+        category_news = self.queryset.select_related('autor', 'estado').filter(
             categorias__contains=category,
             estado=3
+        ).only(
+            'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+            'imagen_1', 'categorias', 'contador_visitas', 'mostrar_creditos',
+            'autor__nombre', 'autor__apellido'
         ).order_by('-fecha_publicacion')[:limit]
         
         serializer = self.get_serializer(category_news, many=True)
@@ -862,3 +884,82 @@ class ResetPasswordView(APIView):
             return Response({"message": "Contraseña actualizada exitosamente."}, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+@action(detail=False, methods=['get'])
+def home_data(self, request):
+    """
+    Endpoint optimizado que retorna todos los datos necesarios para la home en una sola consulta
+    """
+    from django.db.models import Prefetch
+    
+    # Base queryset optimizado con select_related y prefetch_related
+    base_queryset = self.queryset.select_related(
+        'autor', 'estado'
+    ).prefetch_related(
+        Prefetch('editores_en_jefe', queryset=Trabajador.objects.only('nombre', 'apellido'))
+    ).filter(estado=3).only(
+        'id', 'nombre_noticia', 'fecha_publicacion', 'slug', 'contenido', 
+        'imagen_1', 'categorias', 'contador_visitas', 'contador_visitas_total',
+        'mostrar_creditos', 'autor__nombre', 'autor__apellido'
+    )
+    
+    # Obtener datos en paralelo usando una sola consulta base
+    all_news = list(base_queryset.order_by('-fecha_publicacion')[:100])  # Cache las primeras 100
+    
+    # Filtrar y organizar los datos en memoria (más rápido que múltiples consultas)
+    featured = all_news[:12]
+    recent = all_news[:5]
+    most_viewed = sorted(all_news, key=lambda x: x.contador_visitas_total, reverse=True)[:5]
+    
+    # Categorizar noticias en memoria
+    categories = {
+        'locales': [],
+        'policiales': [],
+        'politica y economia': [],
+        'provinciales': [],
+        'nacionales': [],
+        'deportes': [],
+        'familia': [],
+        'internacionales': [],
+        'interes general': []
+    }
+    
+    # Distribuir noticias por categorías (más eficiente que consultas separadas)
+    for news in all_news:
+        if news.categorias:
+            news_categories = [cat.strip() for cat in news.categorias.split(',')]
+            for category in categories.keys():
+                if category in news_categories and len(categories[category]) < 7:
+                    categories[category].append(news)
+                    break
+    
+    # Serializar datos de forma optimizada
+    def serialize_news(news_item):
+        return {
+            'id': news_item.id,
+            'nombre_noticia': news_item.nombre_noticia,
+            'fecha_publicacion': news_item.fecha_publicacion,
+            'slug': news_item.slug,
+            'contenido': news_item.contenido,
+            'imagen_1': news_item.imagen_1,
+            'categorias': news_item.categorias,
+            'contador_visitas': news_item.contador_visitas,
+            'contador_visitas_total': news_item.contador_visitas_total,
+            'mostrar_creditos': news_item.mostrar_creditos,
+            'autor__nombre': news_item.autor.nombre if news_item.autor else None,
+            'autor__apellido': news_item.autor.apellido if news_item.autor else None,
+        }
+    
+    # Construir respuesta optimizada
+    response_data = {
+        'featured': [serialize_news(item) for item in featured],
+        'recent': [serialize_news(item) for item in recent],
+        'most_viewed': [serialize_news(item) for item in most_viewed],
+        'sections': {
+            category: [serialize_news(item) for item in news_list]
+            for category, news_list in categories.items()
+        }
+    }
+    
+    return Response(response_data)
