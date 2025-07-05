@@ -19,4 +19,4 @@ echo "from diarioback.models import EstadoPublicacion; states = [('borrador', 'B
 #export DJANGO_SUPERUSER_USERNAME=admin
 #export DJANGO_SUPERUSER_EMAIL=test@test.com
 #export DJANGO_SUPERUSER_PASSWORD=test132465798
-python manage.py createsuperuser --no-input
+#python manage.py createsuperuser --no-input
