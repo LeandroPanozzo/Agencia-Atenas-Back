@@ -258,59 +258,22 @@ class NoticiaVisita(models.Model):
 from django.utils.text import slugify
 
 class Noticia(models.Model):
+    # Categorías simplificadas - solo categorías principales, sin subcategorías
     CATEGORIAS = [
-        ('Portada', 'portada'),
-        ('Politica', (
-            ('legislativos', 'Legislativos'),
-            ('policiales', 'Policiales'),
-            ('elecciones', 'Elecciones'),
-            ('gobierno', 'Gobierno'),
-            ('provincias', 'Provincias'),
-            ('capital', 'Capital'),
-            ('nacion', 'Nacion'),
-            
-        )),
-        ('Cultura', (
-            ('cine', 'Cine'),
-            ('literatura', 'Literatura'),
-            ('salud', 'Salud'),
-            ('tecnologia', 'Tecnologia'),
-            ('eventos', 'Eventos'),
-            ('educacion', 'Educacion'),
-            ('efemerides', 'Efemerides'),
-            ('deporte', 'Deporte'),
-        )),
-        ('Economia', (
-            ('finanzas', 'Finanzas'),
-            ('comercio_internacional', 'Comercio internacional'),
-            ('politica_economica', 'Politica economica'),
-            ('pobreza_e_inflacion', 'Pobreza e inflacion'),
-            ('dolar', 'Dolar')
-        )),
-        ('Mundo', (
-            ('estados_unidos', 'Estados Unidos'),
-            ('asia', 'Asia'),
-            ('medio_oriente', 'Medio Oriente'),
-            ('internacional', 'Internacional'),
-            ('latinoamerica', 'Latinoamerica'),
-        )),
-        ('Tipos de notas', (
-            ('de_analisis', 'De analisis'),
-            ('de_opinion', 'De opinion'),
-            ('informativas', 'Informativas'),
-            ('entrevistas', 'Entrevistas'),
-            
-        )),
-
+        ('locales', 'Locales'),
+        ('policiales', 'Policiales'),
+        ('politica y economia', 'Politica y Economia'),
+        ('provinciales', 'Provinciales'),
+        ('nacionales', 'Nacionales'),
+        ('deportes', 'Deportes'),
+        ('familia', 'Familia'),
+        ('internacionales', 'Internacionales'),
+        ('interes general', 'Interes General'),
     ]
 
-    # Fixed flattening of categories
-    FLAT_CATEGORIAS = []
-    for category in CATEGORIAS:
-        if isinstance(category[1], tuple):
-            FLAT_CATEGORIAS.extend(subcat[0] for subcat in category[1])
-        else:
-            FLAT_CATEGORIAS.append(category[0])
+    # Ya no necesitas FLAT_CATEGORIAS porque no hay subcategorías
+    FLAT_CATEGORIAS = [cat[0] for cat in CATEGORIAS]
+
     # Helper method to validate categories
     def validate_categorias(value):
         """Standalone validator function for categorias field"""
@@ -367,7 +330,10 @@ class Noticia(models.Model):
     contenido = models.TextField(default='default content')
     subtitulo = models.TextField(default='default content')
     tiene_comentarios = models.BooleanField(default=False)
-
+    mostrar_creditos = models.BooleanField(
+        default=True, 
+        help_text="Si está marcado, se mostrarán los datos del autor y editores de la noticia"
+    )
     def save(self, *args, **kwargs):
         # Validate categorias before saving
         if self.categorias:
@@ -448,6 +414,7 @@ class Noticia(models.Model):
             # Si la URL ha cambiado y la antigua URL existe, eliminarla de Imgur
             if old_url and old_url != new_url and old_url.startswith('https://i.imgur.com/'):
                 delete_from_imgur(old_url)
+    
     def get_categorias(self):
         return self.categorias.split(',') if self.categorias else []
 
@@ -528,29 +495,13 @@ class Noticia(models.Model):
     def validate_categorias(value):
         """Standalone validator function for categorias field"""
         if not value:
-            return []
+            return ''
         categories = value.split(',')
+        categories = [cat.strip() for cat in categories if cat.strip()]
         invalid_cats = [cat for cat in categories if cat not in Noticia.FLAT_CATEGORIAS]
         if invalid_cats:
             raise ValidationError(f'Invalid categories: {", ".join(invalid_cats)}')
-        return value
-    
-    @staticmethod
-    def validate_categorias(value):
-        """Temporary validator function that allows 'argentina' during transition"""
-        if not value:
-            return []
-        categories = value.split(',')
-        
-        # Lista temporal de categorías permitidas durante la transición
-        temp_allowed = ['argentina']  # Categorías obsoletas pero que aún existen en DB
-        
-        # Verificar solo categorías que no estén en la lista temporal
-        invalid_cats = [cat for cat in categories if cat not in Noticia.FLAT_CATEGORIAS and cat not in temp_allowed]
-        
-        if invalid_cats:
-            raise ValidationError(f'Invalid categories: {", ".join(invalid_cats)}')
-        return value
+        return ','.join(categories)
 
     
 class Comentario(models.Model):

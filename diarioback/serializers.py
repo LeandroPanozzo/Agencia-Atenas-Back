@@ -212,9 +212,9 @@ class NoticiaSerializer(serializers.ModelSerializer):
             'imagen_1', 'imagen_2', 'imagen_3', 
             'imagen_4', 'imagen_5', 'imagen_6', 
             'estado', 'solo_para_subscriptores', 
-            'contenido', 'tiene_comentarios', 
+            'contenido', 'tiene_comentarios', 'mostrar_creditos',
             'conteo_reacciones', 'contador_visitas', 'visitas_semana',
-            'autorData', 'editoresData', 'url', 'slug'  # Incluir nuevos campos
+            'autorData', 'editoresData', 'url', 'slug'
         ]
 
     def get_url(self, obj):
@@ -225,7 +225,11 @@ class NoticiaSerializer(serializers.ModelSerializer):
         return obj.get_conteo_reacciones()
 
     def get_autorData(self, obj):
-        """Return author data if include_autor was requested"""
+        """Return author data if include_autor was requested AND mostrar_creditos is True"""
+        # Verificar si mostrar_creditos está en False
+        if not obj.mostrar_creditos:
+            return None
+        
         if hasattr(self.context.get('request'), 'query_params'):
             include_autor = self.context.get('request').query_params.get('include_autor')
             if include_autor and include_autor.lower() == 'true':
@@ -239,7 +243,11 @@ class NoticiaSerializer(serializers.ModelSerializer):
         return None
         
     def get_editoresData(self, obj):
-        """Return editors data if include_editor was requested"""
+        """Return editors data if include_editor was requested AND mostrar_creditos is True"""
+        # Verificar si mostrar_creditos está en False
+        if not obj.mostrar_creditos:
+            return None
+        
         if hasattr(self.context.get('request'), 'query_params'):
             include_editor = self.context.get('request').query_params.get('include_editor')
             if include_editor and include_editor.lower() == 'true':
@@ -256,34 +264,22 @@ class NoticiaSerializer(serializers.ModelSerializer):
         Sobrescribe to_internal_value para manejar correctamente las comillas en el título
         y otros posibles problemas de caracteres especiales
         """
-        # Si es un QueryDict o similar, convertir a dict normal
         if hasattr(data, 'dict'):
             data = data.dict()
         
-        # Crear una copia mutable de los datos
         mutable_data = data.copy() if isinstance(data, dict) else {}
-        
-        # Asegurarse de que nombre_noticia sea tratado correctamente
-        if 'nombre_noticia' in mutable_data:
-            # No es necesario hacer un escape adicional, 
-            # el serializador debería manejar los caracteres correctamente
-            pass
         
         # Manejar las categorias si están en formato lista
         if 'categorias' in mutable_data and isinstance(mutable_data['categorias'], list):
             mutable_data['categorias'] = ','.join(mutable_data['categorias'])
         
-        # Procesar el resto de los datos normalmente
         return super().to_internal_value(mutable_data)
 
     def create(self, validated_data):
-        # Ensure ID is not in the data
         validated_data.pop('id', None)
         
-        # Debug log to verify validated data
         print("Validated Data in create:", validated_data)
 
-        # Extraer los editores_en_jefe antes de crear el objeto
         editores_en_jefe = validated_data.pop('editores_en_jefe', [])
 
         # Ensure categorias is properly formatted
@@ -293,32 +289,27 @@ class NoticiaSerializer(serializers.ModelSerializer):
         elif not categorias:
             validated_data['categorias'] = ''
 
-        # Create the Noticia instance without the many-to-many field
         noticia = Noticia.objects.create(**validated_data)
 
-        # Ahora asignamos los editores_en_jefe usando el método set()
         if editores_en_jefe:
             noticia.editores_en_jefe.set(editores_en_jefe)
         
-        # Debug log to verify the created instance
         print("Created Noticia:", noticia)
         return noticia
 
     def validate_categorias(self, value):
-        """Validate categories against allowed list with support for legacy categories"""
+        """Validate categories against simplified allowed list"""
         if not value:
             return ''
         categories = value.split(',')
+        categories = [cat.strip() for cat in categories if cat.strip()]
         
-        # Lista temporal de categorías permitidas durante la transición
-        temp_allowed = ['argentina']  # Categorías obsoletas pero que aún existen en DB
-        
-        # Verificar solo categorías que no estén en la lista temporal
-        invalid_cats = [cat for cat in categories if cat not in Noticia.FLAT_CATEGORIAS and cat not in temp_allowed]
+        # Verificar contra las categorías simplificadas
+        invalid_cats = [cat for cat in categories if cat not in Noticia.FLAT_CATEGORIAS]
         
         if invalid_cats:
-            raise serializers.ValidationError(f'Invalid categories: {", ".join(invalid_cats)}')
-        return value
+            raise serializers.ValidationError(f'Invalid categories: {", ".join(invalid_cats)}. Valid categories are: {", ".join(Noticia.FLAT_CATEGORIAS)}')
+        return ','.join(categories)
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -326,10 +317,8 @@ class NoticiaSerializer(serializers.ModelSerializer):
         return ret
 
     def update(self, instance, validated_data):
-        # Debug log to verify validated data
         print("Validated Data in update:", validated_data)
         
-        # Extract editores_en_jefe separately as it's a many-to-many field
         editores = validated_data.pop('editores_en_jefe', None)
         
         # Ensure categorias is properly formatted
@@ -344,29 +333,25 @@ class NoticiaSerializer(serializers.ModelSerializer):
             'nombre_noticia', 'fecha_publicacion', 'categorias', 
             'Palabras_clave', 'subtitulo', 'solo_para_subscriptores', 
             'contenido', 'tiene_comentarios', 'estado', 
-            'autor'
+            'autor','mostrar_creditos'
         ]
         for field in fields_to_update:
             if field in validated_data:
                 setattr(instance, field, validated_data.get(field, getattr(instance, field)))
 
         # Handle image updates
-        for i in range(7):  # 0 for imagen_cabecera, 1-6 for imagen_1 to imagen_6
+        for i in range(7):
             field_name = f'imagen_{i}' if i > 0 else 'imagen_cabecera'
             image_url = validated_data.get(field_name)
             if image_url:
                 setattr(instance, field_name, image_url)
         
-        # Actualiza los editores si se proporcionaron
         if editores is not None:
-            # Limpia los editores existentes y añade los nuevos
             instance.editores_en_jefe.clear()
             instance.editores_en_jefe.add(*editores)
         
-        # Save the updated instance
         instance.save()
 
-        # Debug log to verify the updated instance
         print("Updated Noticia:", instance)
         return instance
 from .models import ReaccionNoticia
