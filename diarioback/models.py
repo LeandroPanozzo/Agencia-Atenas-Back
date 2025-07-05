@@ -5,7 +5,11 @@ import os
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.utils import timezone
 from datetime import timedelta
-
+import requests
+import time
+import os
+import base64
+from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.core.exceptions import ValidationError
 
 def validate_positive(value):
@@ -39,7 +43,7 @@ class UserProfile(models.Model):
     es_trabajador = models.BooleanField(default=False)
 
 class Trabajador(models.Model):
-    DEFAULT_FOTO_PERFIL_URL = 'https://example.com/default-profile.png'
+    DEFAULT_FOTO_PERFIL_URL = 'https://i.ibb.co/default-profile.png'  # URL por defecto de ImgBB
     user_profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, blank=True)
     id = models.AutoField(primary_key=True)
     correo = models.EmailField(unique=False)
@@ -88,18 +92,23 @@ class Trabajador(models.Model):
         # Llamar a la versión original del método `save`
         super().save(*args, **kwargs)
 
-        # Eliminar la imagen anterior de Imgur si ha sido reemplazada
-        if old_instance:
-            self._delete_old_image(old_instance, 'foto_perfil')
+        # Nota: ImgBB no permite eliminar imágenes vía API pública
+        # por lo que comentamos la eliminación automática
+        # if old_instance:
+        #     self._delete_old_image(old_instance, 'foto_perfil')
 
     def _handle_image(self, image_field, image_local_field):
         image_local = getattr(self, image_local_field)
         image_url = getattr(self, image_field)
 
-        # Si es una imagen local, subirla a Imgur
+        # Si es una imagen local, subirla a ImgBB
         if image_local and os.path.exists(image_local.path):
-            uploaded_image_url = upload_to_imgur(image_local.path)
-            setattr(self, image_field, uploaded_image_url)
+            uploaded_image_url = upload_to_imgbb(image_local.path)
+            if uploaded_image_url:
+                setattr(self, image_field, uploaded_image_url)
+            else:
+                # Si falla la subida, usar la URL por defecto
+                setattr(self, image_field, self.DEFAULT_FOTO_PERFIL_URL)
         elif image_url:
             # Si hay una URL proporcionada, la usamos
             setattr(self, image_field, image_url)
@@ -108,10 +117,14 @@ class Trabajador(models.Model):
             setattr(self, image_field, self.DEFAULT_FOTO_PERFIL_URL)
 
     def _delete_old_image(self, old_instance, field_name):
+        """
+        Método mantenido por compatibilidad pero ImgBB no soporta eliminación
+        """
         old_image_url = getattr(old_instance, field_name)
         new_image_url = getattr(self, field_name)
         if old_image_url and old_image_url != new_image_url:
-            delete_from_imgur(old_image_url)
+            print(f"Nota: No se puede eliminar automáticamente la imagen anterior de ImgBB: {old_image_url}")
+            # delete_from_imgbb(old_image_url)  # Comentado porque no funciona
 
     def get_foto_perfil(self):
         return self.foto_perfil_local.url if self.foto_perfil_local else self.foto_perfil or self.DEFAULT_FOTO_PERFIL_URL
@@ -126,123 +139,123 @@ import time
 import os
 from django.core.files.uploadedfile import InMemoryUploadedFile
 
-# Constantes de Imgur
-IMGUR_CLIENT_ID = '8e1f77de3869736'  # Tu Client ID actual
-IMGUR_UPLOAD_URL = 'https://api.imgur.com/3/image'
+IMGBB_API_KEY = 'a315981b1bce71916fb736816e14d90a'
+IMGBB_UPLOAD_URL = 'https://api.imgbb.com/1/upload'
 
-def upload_to_imgur(image):
+def upload_to_imgbb(image):
     """
-    Sube una imagen a Imgur y devuelve la URL
+    Sube una imagen a ImgBB y devuelve la URL
     
     Args:
         image: Puede ser un objeto InMemoryUploadedFile, una ruta a un archivo,
                o un archivo abierto en modo binario
     
     Returns:
-        str: URL de la imagen en Imgur, o None si falló la subida
+        str: URL de la imagen en ImgBB, o None si falló la subida
     """
-    headers = {
-        'Authorization': f'Client-ID {IMGUR_CLIENT_ID}'
-    }
-    
     try:
         # Prepara los datos según el tipo de entrada
         if isinstance(image, InMemoryUploadedFile):
             # Si es un archivo subido en memoria (desde un formulario)
             image_data = image.read()
-            files = {'image': image_data}
         elif isinstance(image, str) and os.path.isfile(image):
             # Si es una ruta a un archivo
             with open(image, 'rb') as image_file:
                 image_data = image_file.read()
-                files = {'image': image_data}
         elif hasattr(image, 'path') and os.path.isfile(image.path):
             # Si es un campo ImageField de Django
             with open(image.path, 'rb') as image_file:
                 image_data = image_file.read()
-                files = {'image': image_data}
         else:
             # Si es un archivo ya abierto o cualquier otro objeto que pueda ser leído
             image_data = image.read() if hasattr(image, 'read') else image
-            files = {'image': image_data}
         
-        # Intentar subir la imagen a Imgur
-        response = requests.post(
-            IMGUR_UPLOAD_URL,
-            headers=headers,
-            files=files
-        )
+        # Codificar la imagen en base64
+        image_base64 = base64.b64encode(image_data).decode('utf-8')
+        
+        # Datos para la petición
+        data = {
+            'key': IMGBB_API_KEY,
+            'image': image_base64,
+            'expiration': 0  # 0 significa que nunca expira
+        }
+        
+        # Intentar subir la imagen a ImgBB
+        response = requests.post(IMGBB_UPLOAD_URL, data=data)
         
         # Manejar límites de peticiones
         if response.status_code == 429:  # Too Many Requests
             print("Error 429: Demasiadas solicitudes, esperando antes de reintentar...")
             time.sleep(60)  # Esperar 60 segundos antes de reintentar
-            return upload_to_imgur(image)  # Reintentar la carga
+            return upload_to_imgbb(image)  # Reintentar la carga
         
         # Verificar respuesta
         if response.status_code == 200:
             response_data = response.json()
             if response_data.get('success'):
-                return response_data['data']['link']
+                return response_data['data']['url']
             else:
-                print(f"Error al subir imagen a Imgur: {response_data.get('data', {}).get('error')}")
+                print(f"Error al subir imagen a ImgBB: {response_data.get('error', {}).get('message', 'Error desconocido')}")
         else:
-            print(f"Error HTTP {response.status_code} al subir imagen a Imgur")
+            print(f"Error HTTP {response.status_code} al subir imagen a ImgBB")
+            print(f"Respuesta: {response.text}")
         
     except Exception as e:
-        print(f"Excepción al subir imagen a Imgur: {str(e)}")
+        print(f"Excepción al subir imagen a ImgBB: {str(e)}")
     
     return None
 
-# Implementación mejorada para eliminar imágenes de Imgur
-def delete_from_imgur(image_url):
+def delete_from_imgbb(image_url):
     """
-    Elimina una imagen de Imgur usando su URL o hash
+    Elimina una imagen de ImgBB usando su URL
     
     Args:
-        image_url: URL de la imagen o hash de Imgur
+        image_url: URL de la imagen en ImgBB
     
     Returns:
         bool: True si se eliminó correctamente, False en caso contrario
+    
+    Nota: ImgBB no proporciona una API pública para eliminar imágenes.
+    Esta función está aquí por compatibilidad pero no hará nada.
     """
-    # Extrae el hash de la imagen desde la URL
-    # Las URLs de Imgur suelen tener el formato: https://i.imgur.com/abcdefg.jpg
+    print(f"Advertencia: ImgBB no soporta eliminación de imágenes vía API pública")
+    print(f"La imagen {image_url} no se puede eliminar automáticamente")
+    return False
+
+# Función alternativa para obtener información de la imagen
+def get_imgbb_image_info(image_url):
+    """
+    Obtiene información de una imagen de ImgBB (si es posible)
+    
+    Args:
+        image_url: URL de la imagen en ImgBB
+    
+    Returns:
+        dict: Información de la imagen o None si no se puede obtener
+    """
     try:
-        if not image_url:
-            return False
-            
-        # Extrae el hash de la URL
-        image_hash = None
-        if '/' in image_url:
-            # Obtener la última parte de la URL (el nombre del archivo)
-            filename = image_url.split('/')[-1]
-            # Quitar la extensión si existe
-            image_hash = filename.split('.')[0] if '.' in filename else filename
-        else:
-            # Si solo es un hash
-            image_hash = image_url
-            
-        if not image_hash:
-            return False
-            
-        # URL para eliminar la imagen
-        delete_url = f'https://api.imgur.com/3/image/{image_hash}'
+        # Extraer el ID de la imagen de la URL
+        # Las URLs de ImgBB suelen tener el formato: https://i.ibb.co/xxxxxx/image.ext
+        if 'ibb.co' in image_url:
+            parts = image_url.split('/')
+            if len(parts) >= 4:
+                image_id = parts[4]  # El ID está en la 5ta posición
+                
+                # ImgBB no tiene API pública para obtener info, pero podemos intentar
+                # hacer una petición HEAD para verificar si existe
+                response = requests.head(image_url, timeout=10)
+                if response.status_code == 200:
+                    return {
+                        'url': image_url,
+                        'exists': True,
+                        'content_type': response.headers.get('content-type', 'unknown')
+                    }
         
-        headers = {
-            'Authorization': f'Client-ID {IMGUR_CLIENT_ID}'
-        }
+        return None
         
-        response = requests.delete(delete_url, headers=headers)
-        
-        if response.status_code == 200:
-            return True
-        else:
-            print(f"Error al eliminar imagen de Imgur: {response.status_code}")
-            return False
-            
     except Exception as e:
-        print(f"Error al eliminar imagen de Imgur: {str(e)}")
-        return False
+        print(f"Error al obtener información de la imagen ImgBB: {str(e)}")
+        return None
 
 class NoticiaVisita(models.Model):
     noticia = models.ForeignKey('Noticia', on_delete=models.CASCADE, related_name='visitas')
@@ -375,7 +388,7 @@ class Noticia(models.Model):
             super().save()
     
     def _process_images(self, old_instance=None):
-        """Procesa todas las imágenes, sube a Imgur y actualiza URLs"""
+        """Procesa todas las imágenes, sube a ImgBB y actualiza URLs"""
         images_updated = False
         
         # Procesar imágenes adicionales (1-6)
@@ -385,35 +398,41 @@ class Noticia(models.Model):
             
             local_field = getattr(self, local_field_name)
             if local_field and hasattr(local_field, 'file'):
-                # Subir la imagen a Imgur
-                imgur_url = upload_to_imgur(local_field)
-                if imgur_url:
+                # Subir la imagen a ImgBB
+                imgbb_url = upload_to_imgbb(local_field)
+                if imgbb_url:
                     # Si la subida fue exitosa, actualizar la URL
-                    setattr(self, url_field_name, imgur_url)
+                    setattr(self, url_field_name, imgbb_url)
                     # Limpiar el campo local después de subir
                     setattr(self, local_field_name, None)
                     images_updated = True
                     
                     # Para depuración
-                    print(f"Imagen {i} subida a Imgur: {imgur_url}")
+                    print(f"Imagen {i} subida a ImgBB: {imgbb_url}")
+                else:
+                    print(f"Error al subir imagen {i} a ImgBB")
         
-        # Eliminar imágenes antiguas de Imgur si fueron reemplazadas
-        if old_instance:
-            self._delete_old_images(old_instance)
+        # Nota: No eliminamos imágenes antiguas porque ImgBB no lo permite
+        # if old_instance:
+        #     self._delete_old_images(old_instance)
         
         return images_updated
     
     def _delete_old_images(self, old_instance):
-        """Elimina las imágenes antiguas de Imgur si han sido reemplazadas"""
-        fields_to_check =  [f'imagen_{i}' for i in range(1, 7)]
+        """
+        Método mantenido por compatibilidad pero ImgBB no soporta eliminación
+        """
+        fields_to_check = [f'imagen_{i}' for i in range(1, 7)]
         
         for field_name in fields_to_check:
             old_url = getattr(old_instance, field_name)
             new_url = getattr(self, field_name)
             
-            # Si la URL ha cambiado y la antigua URL existe, eliminarla de Imgur
-            if old_url and old_url != new_url and old_url.startswith('https://i.imgur.com/'):
-                delete_from_imgur(old_url)
+            # Si la URL ha cambiado y la antigua URL existe, mostrar mensaje
+            if old_url and old_url != new_url and 'ibb.co' in old_url:
+                print(f"Nota: No se puede eliminar automáticamente la imagen anterior de ImgBB: {old_url}")
+                # delete_from_imgbb(old_url)  # Comentado porque no funciona
+
     
     def get_categorias(self):
         return self.categorias.split(',') if self.categorias else []
@@ -549,14 +568,18 @@ class EstadoPublicacion(models.Model):
 
 class Imagen(models.Model):
     nombre_imagen = models.CharField(max_length=100)
-    imagen = models.URLField(null=True, blank=True)  # URL de la imagen en Imgur
+    imagen = models.URLField(null=True, blank=True)  # URL de la imagen en ImgBB
     noticia = models.ForeignKey(Noticia, on_delete=models.CASCADE, related_name='imagenes')
 
     def save(self, *args, **kwargs):
         # Verifica si imagen es una URL o una ruta local
-        if not self.imagen.startswith(('http://', 'https://')):
-            # Si es una ruta local, sube la imagen a Imgur
-            self.imagen = upload_to_imgur(self.imagen)
+        if self.imagen and not self.imagen.startswith(('http://', 'https://')):
+            # Si es una ruta local, sube la imagen a ImgBB
+            uploaded_url = upload_to_imgbb(self.imagen)
+            if uploaded_url:
+                self.imagen = uploaded_url
+            else:
+                print(f"Error al subir imagen a ImgBB: {self.imagen}")
         super().save(*args, **kwargs)
 
     def __str__(self):

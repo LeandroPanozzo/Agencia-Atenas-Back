@@ -1,6 +1,6 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
-from .models import Rol, Trabajador, UserProfile, Usuario, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad
+from .models import Rol, Trabajador, UserProfile, Usuario, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad, upload_to_imgbb
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -9,7 +9,7 @@ from django.contrib.auth import authenticate
 from .serializers import UserProfileSerializer, UserRegistrationSerializer, LoginSerializer
 from django.core.files.storage import default_storage
 import uuid
-from .imgur_utils import upload_to_imgur, delete_from_imgur
+
 from django.core.files.base import ContentFile
 from rest_framework.decorators import api_view
 import os
@@ -111,9 +111,7 @@ from .models import Noticia, Trabajador
 from .serializers import NoticiaSerializer
 from django.shortcuts import get_object_or_404
 
-def upload_to_imgur(image):
-    # Implementación del servicio de subida a Imgur
-    pass
+
 class NoticiaViewSet(viewsets.ModelViewSet):
     queryset = Noticia.objects.all()
     serializer_class = NoticiaSerializer
@@ -431,22 +429,28 @@ class NoticiaViewSet(viewsets.ModelViewSet):
             
         image = request.FILES['image']
         
-        if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+        if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
             return Response({
-                'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG o GIF.'
+                'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG, GIF o WebP.'
             }, status=status.HTTP_400_BAD_REQUEST)
             
-        uploaded_url = upload_to_imgur(image)
+        # Verificar tamaño del archivo (ImgBB tiene un límite de 32MB)
+        if image.size > 32 * 1024 * 1024:  # 32MB en bytes
+            return Response({
+                'error': 'El archivo es demasiado grande. El tamaño máximo es 32MB.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        uploaded_url = upload_to_imgbb(image)
             
         if uploaded_url:
             return Response({
                 'success': True, 
                 'url': uploaded_url,
-                'message': 'Imagen subida exitosamente a Imgur'
+                'message': 'Imagen subida exitosamente a ImgBB'
             })
         else:
             return Response({
-                'error': 'Error al subir la imagen a Imgur'
+                'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 User = get_user_model()
 
@@ -625,23 +629,29 @@ def upload_image(request):
     image = request.FILES['image']
 
     # Verificar tipo de archivo
-    if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+    if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
         return Response({
-            'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG o GIF.'
+            'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG, GIF o WebP.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Subir directamente a Imgur
-    uploaded_url = upload_to_imgur(image)
+    # Verificar tamaño del archivo (ImgBB tiene un límite de 32MB)
+    if image.size > 32 * 1024 * 1024:  # 32MB en bytes
+        return Response({
+            'error': 'El archivo es demasiado grande. El tamaño máximo es 32MB.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Subir directamente a ImgBB
+    uploaded_url = upload_to_imgbb(image)
 
     if uploaded_url:
         return Response({
             'success': True, 
             'url': uploaded_url,
-            'message': 'Imagen subida exitosamente a Imgur'
+            'message': 'Imagen subida exitosamente a ImgBB'
         })
     else:
         return Response({
-            'error': 'Error al subir la imagen a Imgur'
+            'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['PUT'])

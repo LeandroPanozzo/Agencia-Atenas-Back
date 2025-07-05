@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Rol, Trabajador, UserProfile, Usuario,  upload_to_imgur, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad
+from .models import Rol, Trabajador, UserProfile, Usuario, upload_to_imgbb, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
 from rest_framework import generics
@@ -90,8 +90,8 @@ class PublicidadSerializer(serializers.ModelSerializer):
 
 class TrabajadorSerializer(serializers.ModelSerializer):
     foto_perfil_local = serializers.ImageField(write_only=True, required=False)
-    foto_perfil = serializers.URLField(read_only=True)  # Para retornar la URL de la imagen subida a Imgur
-    descripcion_usuario = serializers.CharField(required=False, allow_blank=True)  # Asegúrate de incluir esto
+    foto_perfil = serializers.URLField(read_only=True)  # Para retornar la URL de la imagen subida a ImgBB
+    descripcion_usuario = serializers.CharField(required=False, allow_blank=True)
     
     class Meta:
         model = Trabajador
@@ -102,10 +102,13 @@ class TrabajadorSerializer(serializers.ModelSerializer):
         trabajador = Trabajador.objects.create(**validated_data)
 
         if foto_perfil_local:
-            # Guarda la imagen local y la URL de la imagen en Imgur
-            trabajador.foto_perfil_local = foto_perfil_local
-            trabajador.foto_perfil = upload_to_imgur(foto_perfil_local)
-            trabajador.save()
+            # Sube la imagen a ImgBB y guarda la URL
+            imgbb_url = upload_to_imgbb(foto_perfil_local)
+            if imgbb_url:
+                trabajador.foto_perfil = imgbb_url
+                trabajador.save()
+            else:
+                print("Error al subir imagen de perfil a ImgBB")
 
         return trabajador
 
@@ -119,20 +122,23 @@ class TrabajadorSerializer(serializers.ModelSerializer):
 
         # Actualiza la descripcion_usuario si está en validated_data
         if 'descripcion_usuario' in validated_data:
-            if instance.user_profile:  # Verifica que el perfil del usuario exista
+            if instance.user_profile:
                 instance.descripcion_usuario = validated_data['descripcion_usuario']
             else:
-                # Opcional: Si no existe un perfil de usuario, puedes crear uno o manejarlo de otra manera
+                # Si no existe un perfil de usuario, crear uno
                 user_profile = UserProfile.objects.create(user=instance.user)
                 user_profile.descripcion_usuario = validated_data['descripcion_usuario']
                 user_profile.save()
 
         # Manejo de la imagen de perfil local
         if foto_perfil_local:
-            instance.foto_perfil_local = foto_perfil_local  # Guardar en el campo local
-            instance.foto_perfil = upload_to_imgur(foto_perfil_local)  # Subir a Imgur y guardar URL
+            imgbb_url = upload_to_imgbb(foto_perfil_local)
+            if imgbb_url:
+                instance.foto_perfil = imgbb_url
+            else:
+                print("Error al subir imagen de perfil a ImgBB")
 
-        instance.save()  # Guarda los cambios en la instancia Trabajador
+        instance.save()
         return instance
         
 
@@ -167,8 +173,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
         # Procesar la imagen local si es proporcionada
         if foto_perfil_local:
-            instance.foto_perfil_local = foto_perfil_local
-            instance.foto_perfil = upload_to_imgur(foto_perfil_local)
+            imgbb_url = upload_to_imgbb(foto_perfil_local)
+            if imgbb_url:
+                instance.foto_perfil = imgbb_url
+            else:
+                print("Error al subir imagen de perfil a ImgBB")
 
         # Llamar al método original de update
         return super().update(instance, validated_data)
