@@ -483,15 +483,22 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         if not user.is_authenticated:
             raise PermissionDenied("Usuario no autenticado.")
         
-        # Intentar obtener el perfil del usuario
+        # Primero verificamos si es un trabajador
         try:
-            # Primero buscamos en UserProfile
-            return UserProfile.objects.get(user=user)
-        except UserProfile.DoesNotExist:
-            # Si no existe, verificamos si es un trabajador
+            trabajador = Trabajador.objects.get(user=user)
+            # Si es un trabajador, verificamos si tiene UserProfile
             try:
-                trabajador = Trabajador.objects.get(user=user)
-                # Si es un trabajador, creamos un UserProfile asociado
+                profile = UserProfile.objects.get(user=user)
+                # Sincronizamos los datos del trabajador con el perfil
+                profile.nombre = trabajador.nombre
+                profile.apellido = trabajador.apellido
+                profile.foto_perfil = trabajador.foto_perfil
+                profile.descripcion_usuario = trabajador.descripcion_usuario
+                profile.es_trabajador = True
+                profile.save()
+                return profile
+            except UserProfile.DoesNotExist:
+                # Si no tiene UserProfile, lo creamos con los datos del trabajador
                 profile = UserProfile.objects.create(
                     user=user,
                     nombre=trabajador.nombre,
@@ -501,8 +508,12 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
                     es_trabajador=True
                 )
                 return profile
-            except Trabajador.DoesNotExist:
-                # Si no es un trabajador, creamos un perfil vacío
+        except Trabajador.DoesNotExist:
+            # Si no es un trabajador, manejamos como usuario normal
+            try:
+                return UserProfile.objects.get(user=user)
+            except UserProfile.DoesNotExist:
+                # Creamos un perfil para usuario normal
                 profile = UserProfile.objects.create(
                     user=user,
                     nombre=user.first_name,
@@ -518,11 +529,60 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
     def put(self, request, *args, **kwargs):
         profile = self.get_object()
-        serializer = self.get_serializer(profile, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user = self.request.user
+        
+        # Verificar si es un trabajador para actualizar ambos modelos
+        try:
+            trabajador = Trabajador.objects.get(user=user)
+            # Si es trabajador, actualizamos tanto el Trabajador como el UserProfile
+            
+            # Actualizar los campos del trabajador
+            nombre = request.data.get('nombre')
+            apellido = request.data.get('apellido')
+            descripcion_usuario = request.data.get('descripcion_usuario')
+            foto_perfil_local = request.FILES.get('foto_perfil_local')
+            
+            if nombre:
+                trabajador.nombre = nombre
+            if apellido:
+                trabajador.apellido = apellido
+            if descripcion_usuario is not None:
+                trabajador.descripcion_usuario = descripcion_usuario
+            
+            # Manejo de la imagen
+            if foto_perfil_local:
+                # Subir a ImgBB usando tu función existente
+                imgbb_url = upload_to_imgbb(foto_perfil_local)
+                if imgbb_url:
+                    trabajador.foto_perfil = imgbb_url
+                    profile.foto_perfil = imgbb_url
+                else:
+                    return Response(
+                        {'error': 'Error al subir la imagen a ImgBB'}, 
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            
+            # Guardar el trabajador
+            trabajador.save()
+            
+            # Sincronizar los datos en el UserProfile
+            profile.nombre = trabajador.nombre
+            profile.apellido = trabajador.apellido
+            profile.foto_perfil = trabajador.foto_perfil
+            profile.descripcion_usuario = trabajador.descripcion_usuario
+            profile.save()
+            
+        except Trabajador.DoesNotExist:
+            # Si no es trabajador, usar el serializer normal
+            serializer = self.get_serializer(profile, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Devolver la respuesta con los datos actualizados
+        serializer = self.get_serializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 # Vista para el inicio de sesión de usuarios
 class LoginView(APIView):
@@ -862,3 +922,18 @@ class ResetPasswordView(APIView):
             return Response({"message": "Contraseña actualizada exitosamente."}, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_user(request):
+    return Response({
+        'id': request.user.id,
+        'email': request.user.email,
+        'username': request.user.username,
+        'first_name': request.user.first_name,
+        'last_name': request.user.last_name,
+    })

@@ -70,7 +70,8 @@ urlpatterns = [
     path('user-profile/', UserProfileView.as_view(), name='update_trabajador_profile'),
     path('noticias/<int:id>/reacciones/', views.reacciones_noticia, name='reacciones_noticia'),
     path('noticias/<int:id>/mi-reaccion/', views.mi_reaccion, name='mi_reaccion'),
-    
+    path('auth/user/', views.current_user, name='current_user'),
+
     # URLs específicas para las secciones de noticias
     path('noticias/mas-vistas/', NoticiaViewSet.as_view({'get': 'mas_vistas'}), name='noticias-mas-vistas'),
     path('noticias/mas-leidas/', NoticiaViewSet.as_view({'get': 'mas_leidas'}), name='noticias-mas-leidas'),

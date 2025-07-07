@@ -120,15 +120,9 @@ class TrabajadorSerializer(serializers.ModelSerializer):
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
 
-        # Actualiza la descripcion_usuario si está en validated_data
+        # Actualiza la descripcion_usuario
         if 'descripcion_usuario' in validated_data:
-            if instance.user_profile:
-                instance.descripcion_usuario = validated_data['descripcion_usuario']
-            else:
-                # Si no existe un perfil de usuario, crear uno
-                user_profile = UserProfile.objects.create(user=instance.user)
-                user_profile.descripcion_usuario = validated_data['descripcion_usuario']
-                user_profile.save()
+            instance.descripcion_usuario = validated_data['descripcion_usuario']
 
         # Manejo de la imagen de perfil local
         if foto_perfil_local:
@@ -140,7 +134,6 @@ class TrabajadorSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
-        
 
 from django.conf import settings
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -154,32 +147,34 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = ['id', 'nombre', 'apellido', 'foto_perfil', 'foto_perfil_local', 'descripcion_usuario', 'es_trabajador']
 
     def validate_foto_perfil(self, value):
-        if value.startswith(settings.MEDIA_URL):
+        if value and value.startswith(settings.MEDIA_URL):
             return value
-        elif value.startswith('/'):
+        elif value and value.startswith('/'):
             return f"{settings.MEDIA_URL.rstrip('/')}{value}"
-        else:
-            raise serializers.ValidationError("Ingrese una URL válida o una ruta válida.")
+        elif value and value.startswith('http'):
+            return value  # URL externa (como ImgBB)
+        return value
 
     def update(self, instance, validated_data):
         foto_perfil_local = validated_data.pop('foto_perfil_local', None)
-        foto_perfil = validated_data.get('foto_perfil', '')
+        
+        # Si es un trabajador, los datos se actualizan desde la vista
+        # Este método se usa principalmente para usuarios normales
+        if not instance.es_trabajador:
+            foto_perfil = validated_data.get('foto_perfil', '')
 
-        # Convertir el path relativo a URL absoluta si es necesario
-        if foto_perfil.startswith(settings.MEDIA_URL):
-            validated_data['foto_perfil'] = foto_perfil.replace(settings.MEDIA_URL, '', 1)
-        elif foto_perfil.startswith('/'):
-            validated_data['foto_perfil'] = foto_perfil.lstrip('/')
+            # Procesar la imagen local si es proporcionada
+            if foto_perfil_local:
+                imgbb_url = upload_to_imgbb(foto_perfil_local)
+                if imgbb_url:
+                    instance.foto_perfil = imgbb_url
+                else:
+                    print("Error al subir imagen de perfil a ImgBB")
 
-        # Procesar la imagen local si es proporcionada
-        if foto_perfil_local:
-            imgbb_url = upload_to_imgbb(foto_perfil_local)
-            if imgbb_url:
-                instance.foto_perfil = imgbb_url
-            else:
-                print("Error al subir imagen de perfil a ImgBB")
-
-        # Llamar al método original de update
+            # Llamar al método original de update
+            return super().update(instance, validated_data)
+        
+        # Para trabajadores, solo actualizamos los campos necesarios
         return super().update(instance, validated_data)
 
 
