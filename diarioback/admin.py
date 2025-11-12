@@ -1,10 +1,142 @@
+# ========================================
+# urls.py - CÓDIGO COMPLETO
+# ========================================
+
+from rest_framework.routers import DefaultRouter
+from django.urls import path, include, re_path
+from . import views
+from .views import (
+    RolViewSet,
+    TrabajadorViewSet,
+    UsuarioViewSet,
+    NoticiaViewSet,
+    EstadoPublicacionViewSet,
+    ImagenViewSet,
+    PublicidadViewSet,
+    AdminViewSet,
+    UserrViewSet,
+    ServicioViewSet,  # NUEVO
+    redirect_to_home,
+    CurrentUserView,
+    RegisterView,
+    LoginView,
+    RequestPasswordResetView,
+    ResetPasswordView,
+    UserProfileView,
+    EstadoPublicacionList,
+    TrabajadorList,
+    VerifyTokenView,
+    upload_image
+)
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+
+# Crear un router y registrar todos los viewsets
+router = DefaultRouter()
+router.register(r'roles', RolViewSet, basename='rol')
+router.register(r'users', UserrViewSet, basename='user')
+router.register(r'admin', AdminViewSet, basename='admin')
+router.register(r'trabajadores', TrabajadorViewSet, basename='trabajador')
+router.register(r'usuarios', UsuarioViewSet, basename='usuario')
+router.register(r'estados', EstadoPublicacionViewSet, basename='estado')
+router.register(r'imagenes', ImagenViewSet, basename='imagen')
+router.register(r'publicidades', PublicidadViewSet, basename='publicidad')
+router.register(r'noticias', NoticiaViewSet, basename='noticia')
+router.register(r'servicios', ServicioViewSet, basename='servicio')  # NUEVO
+
+urlpatterns = [
+    # === REDIRECCIÓN PRINCIPAL ===
+    path('', redirect_to_home, name='redirect_to_home'),
+    
+    # === RUTAS DEL ROUTER (ViewSets) ===
+    path('', include(router.urls)),
+    
+    # === AUTENTICACIÓN ===
+    path('auth/register/', RegisterView.as_view(), name='register'),
+    path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/user/', views.current_user, name='current_user'),
+    path('auth/current-user/', CurrentUserView.as_view(), name='current-user'),
+    
+    # JWT Tokens
+    path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # === RECUPERACIÓN DE CONTRASEÑA ===
+    path('password/reset/request/', RequestPasswordResetView.as_view(), name='password-reset-request'),
+    path('password/reset/verify/', VerifyTokenView.as_view(), name='password-reset-verify'),
+    path('password/reset/confirm/', ResetPasswordView.as_view(), name='password-reset-confirm'),
+    
+    # === PERFIL DE USUARIO ===
+    path('user-profile/', UserProfileView.as_view(), name='user-profile'),
+    
+    # === LISTAS ESPECÍFICAS ===
+    path('estados-publicacion/', EstadoPublicacionList.as_view(), name='estado-publicacion-list'),
+    path('trabajadores/', TrabajadorList.as_view(), name='trabajador-list'),
+    
+    # === UPLOAD DE IMÁGENES ===
+    path('upload/', upload_image, name='upload_image'),
+    path('noticias/upload-image/', NoticiaViewSet.as_view({'post': 'upload_image'}), name='noticia-upload-image'),
+    path('servicios/upload-image/', ServicioViewSet.as_view({'post': 'upload_image'}), name='servicio-upload-image'),  # NUEVO
+    
+    # === NOTICIAS - DETALLE ===
+    # URL con slug (preferida para SEO)
+    re_path(
+        r'^noticias/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
+        NoticiaViewSet.as_view({'get': 'retrieve'}),
+        name='noticia-detail'
+    ),
+    # URL solo con ID (compatibilidad)
+    path(
+        'noticias/<int:pk>/',
+        NoticiaViewSet.as_view({'get': 'retrieve'}),
+        name='noticia-detail-id-only'
+    ),
+    
+    # === NOTICIAS - CATEGORÍAS Y FILTROS ===
+    path('noticias/recientes/', NoticiaViewSet.as_view({'get': 'recientes'}), name='noticias-recientes'),
+    path('noticias/destacadas/', NoticiaViewSet.as_view({'get': 'destacadas'}), name='noticias-destacadas'),
+    
+    # === SERVICIOS - DETALLE ===  # NUEVO
+    # URL con slug (preferida para SEO)
+    re_path(
+        r'^servicios/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
+        ServicioViewSet.as_view({'get': 'retrieve'}),
+        name='servicio-detail'
+    ),
+    # URL solo con ID (compatibilidad)
+    path(
+        'servicios/<int:pk>/',
+        ServicioViewSet.as_view({'get': 'retrieve'}),
+        name='servicio-detail-id-only'
+    ),
+    
+    # === SERVICIOS - FILTROS ===  # NUEVO
+    path('servicios/activos/', ServicioViewSet.as_view({'get': 'activos'}), name='servicios-activos'),
+]
+
+
+# ========================================
+# admin.py - CÓDIGO COMPLETO
+# ========================================
+
 from django.contrib import admin
 from django.urls import reverse
 from django.contrib.auth.models import User, Group, Permission
 from django.utils.html import format_html
 from django.contrib.contenttypes.models import ContentType
-from .models import Rol, Trabajador, Usuario, Noticia, EstadoPublicacion, Imagen, Publicidad, Comentario
-from .models import Rol, Trabajador, Usuario, Noticia, EstadoPublicacion, Imagen, Publicidad, Comentario, UserProfile
+from .models import (
+    Rol, 
+    Trabajador, 
+    Usuario, 
+    Noticia, 
+    EstadoPublicacion, 
+    Imagen, 
+    Publicidad, 
+    UserProfile,
+    Servicio  # NUEVO
+)
 
 # --- Función helper para verificar permisos de admin ---
 def es_admin_completo(user):
@@ -77,15 +209,11 @@ class RolAdmin(StaffPermissionMixin, admin.ModelAdmin):
 from django import forms
 from .models import Trabajador
 
-from django import forms
-from .models import Trabajador, UserProfile
-from django.core.files.uploadedfile import InMemoryUploadedFile
-
 class TrabajadorForm(forms.ModelForm):
     foto_perfil_temp = forms.ImageField(
         required=False, 
         label="Foto de Perfil",
-        help_text="La imagen será subida automáticamente a Imgur"
+        help_text="La imagen será subida automáticamente a ImgBB"
     )
     
     class Meta:
@@ -137,7 +265,7 @@ class TrabajadorAdmin(StaffPermissionMixin, admin.ModelAdmin):
         }),
         ('Foto de Perfil', {
             'fields': ('foto_perfil_temp',),
-            'description': 'La imagen se subirá automáticamente a Imgur al guardar'
+            'description': 'La imagen se subirá automáticamente a ImgBB al guardar'
         }),
     )
 
@@ -158,7 +286,6 @@ class TrabajadorAdmin(StaffPermissionMixin, admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         obj.correo = obj.user.email
-        obj.contraseña = obj.user.password
         super().save_model(request, obj, form, change)
 
 @admin.register(Usuario)
@@ -167,36 +294,15 @@ class UsuarioAdmin(StaffPermissionMixin, admin.ModelAdmin):
     search_fields = ('correo', 'nombre_usuario')
     list_filter = ('esta_subscrito',)
 
-class ComentarioInline(admin.StackedInline):
-    model = Comentario
-    extra = 1
-    readonly_fields = ('autor', 'fecha_creacion')
-    fields = ('contenido', 'fecha_creacion', 'respuesta', 'fecha_respuesta')
-
-    def save_model(self, request, obj, form, change):
-        if not obj.pk:
-            obj.autor = request.user
-        obj.save()
-
-    def has_add_permission(self, request, obj=None):
-        if es_admin_completo(request.user):
-            return True
-        if hasattr(request.user, 'trabajador') and request.user.trabajador.rol.puede_dejar_comentarios:
-            return True
-        return False
-
 @admin.register(Noticia)
 class NoticiaAdmin(StaffPermissionMixin, admin.ModelAdmin):
     list_display = (
-        'visitas_totales',
         'nombre_noticia', 
         'autor_link', 
         'editores_en_jefe_links',
         'fecha_publicacion', 
-        'display_categorias',
         'solo_para_subscriptores', 
-        'estado', 
-        'icono_comentarios'
+        'estado'
     )
     
     list_filter = (
@@ -205,19 +311,10 @@ class NoticiaAdmin(StaffPermissionMixin, admin.ModelAdmin):
         'solo_para_subscriptores', 
         'estado'
     )
-
-    def display_categorias(self, obj):
-        return obj.categorias
-    display_categorias.short_description = 'Categorías'
-    
-    def visitas_totales(self, obj):
-        return obj.contador_visitas_total
-    visitas_totales.short_description = 'Visitas Total'
-    visitas_totales.admin_order_field = 'contador_visitas_total'
     
     search_fields = ('nombre_noticia', 'Palabras_clave')
     date_hierarchy = 'fecha_publicacion'
-    ordering = ['-contador_visitas_total']
+    ordering = ['-fecha_publicacion']
     
     fieldsets = (
         ('Información Principal', {
@@ -233,15 +330,8 @@ class NoticiaAdmin(StaffPermissionMixin, admin.ModelAdmin):
                 'autor', 
                 'editores_en_jefe',
                 'fecha_publicacion', 
-                'categorias',
                 'estado'
             )
-        }),
-        ('Estadísticas de Visitas', {
-            'fields': (
-                'contador_visitas_total',
-            ),
-            'classes': ('collapse',)
         }),
         ('Imágenes', {
             'fields': (
@@ -256,18 +346,13 @@ class NoticiaAdmin(StaffPermissionMixin, admin.ModelAdmin):
         ('Opciones Avanzadas', {
             'fields': (
                 'solo_para_subscriptores', 
-                'tiene_comentarios', 
+                'mostrar_creditos',
                 'url'
             )
         })
     )
     
-    readonly_fields = (
-        'url', 
-        'contador_visitas_total',
-    )
-    
-    inlines = [ComentarioInline]
+    readonly_fields = ('url',)
 
     def editores_en_jefe_links(self, obj):
         links = []
@@ -283,57 +368,12 @@ class NoticiaAdmin(StaffPermissionMixin, admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
-
-    def icono_comentarios(self, obj):
-        if obj.tiene_comentarios:
-            return format_html('<img src="/static/admin/img/icon-yes.svg" alt="Tiene comentarios">')
-        return format_html('<img src="/static/admin/img/icon-no.svg" alt="No tiene comentarios">')
-    
-    icono_comentarios.short_description = 'Comentarios'
     
     def autor_link(self, obj):
         url = reverse('admin:auth_user_change', args=[obj.autor.user.id])
         return format_html(f'<a href="{url}">{obj.autor}</a>')
 
     autor_link.short_description = 'Autor'
-
-    def get_readonly_fields(self, request, obj=None):
-        readonly = list(self.readonly_fields)
-        
-        if not es_admin_completo(request.user):
-            readonly.extend(['contador_visitas_total'])
-            
-        return readonly
-
-    actions = ['reset_total_counter']
-
-    def reset_total_counter(self, request, queryset):
-        if es_admin_completo(request.user):
-            count = queryset.update(contador_visitas_total=0)
-            self.message_user(
-                request,
-                f'Se resetearon los contadores totales de {count} noticias.'
-            )
-        else:
-            self.message_user(
-                request,
-                'Solo los administradores pueden resetear contadores totales.',
-                level='ERROR'
-            )
-    reset_total_counter.short_description = "Resetear contador total (Solo administradores)"
-
-@admin.register(Comentario)
-class ComentarioAdmin(StaffPermissionMixin, admin.ModelAdmin):
-    list_display = ('noticia', 'autor', 'fecha_creacion', 'tiene_respuesta')
-    list_filter = ('noticia', 'autor', 'fecha_creacion')
-    search_fields = ('noticia__nombre_noticia', 'autor__username', 'contenido')
-    readonly_fields = ('noticia', 'autor', 'contenido', 'fecha_creacion')
-
-    def tiene_respuesta(self, obj):
-        return bool(obj.respuesta)
-    
-    tiene_respuesta.boolean = True
-    tiene_respuesta.short_description = 'Respondido'
 
 @admin.register(EstadoPublicacion)
 class EstadoPublicacionAdmin(StaffPermissionMixin, admin.ModelAdmin):
@@ -352,27 +392,51 @@ class PublicidadAdmin(StaffPermissionMixin, admin.ModelAdmin):
     search_fields = ('tipo_anuncio', 'noticia__nombre_noticia')
     list_filter = ('fecha_inicio', 'fecha_fin')
 
-# --- Comando de management para asignar permisos a usuarios staff existentes ---
-# Crear archivo: management/commands/asignar_permisos_staff.py
 
-"""
-from django.core.management.base import BaseCommand
-from django.contrib.auth.models import User, Permission
+# ========================================
+# NUEVO: Admin para Servicios
+# ========================================
 
-class Command(BaseCommand):
-    help = 'Asigna todos los permisos a usuarios con is_staff=True'
-
-    def handle(self, *args, **options):
-        staff_users = User.objects.filter(is_staff=True, is_superuser=False)
-        all_permissions = Permission.objects.all()
-        
-        for user in staff_users:
-            user.user_permissions.set(all_permissions)
-            self.stdout.write(
-                self.style.SUCCESS(f'Permisos asignados a {user.username}')
+@admin.register(Servicio)
+class ServicioAdmin(StaffPermissionMixin, admin.ModelAdmin):
+    list_display = ('titulo', 'activo', 'fecha_creacion', 'mostrar_imagen', 'ver_url')
+    list_filter = ('activo', 'fecha_creacion')
+    search_fields = ('titulo', 'descripcion', 'palabras_clave')
+    readonly_fields = ('slug', 'fecha_creacion', 'fecha_actualizacion', 'ver_url')
+    date_hierarchy = 'fecha_creacion'
+    ordering = ['-fecha_creacion']
+    
+    fieldsets = (
+        ('Información Principal', {
+            'fields': ('titulo', 'descripcion')
+        }),
+        ('Imagen', {
+            'fields': ('imagen',),
+            'description': 'URL de la imagen en ImgBB (puede subirse desde el frontend)'
+        }),
+        ('Metadatos', {
+            'fields': ('palabras_clave', 'activo')
+        }),
+        ('Información del Sistema', {
+            'fields': ('slug', 'ver_url', 'fecha_creacion', 'fecha_actualizacion'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def mostrar_imagen(self, obj):
+        if obj.imagen:
+            return format_html(
+                '<img src="{}" style="max-height: 100px; max-width: 150px; border-radius: 8px;">',
+                obj.imagen
             )
-        
-        self.stdout.write(
-            self.style.SUCCESS(f'Se procesaron {staff_users.count()} usuarios staff')
-        )
-"""
+        return "Sin imagen"
+    
+    mostrar_imagen.short_description = 'Vista Previa'
+    
+    def ver_url(self, obj):
+        if obj.pk:
+            url = obj.get_absolute_url()
+            return format_html('<a href="{}" target="_blank">{}</a>', url, url)
+        return "Guarde primero para generar la URL"
+    
+    ver_url.short_description = 'URL'

@@ -1,3 +1,7 @@
+# ========================================
+# urls.py - CÓDIGO CORREGIDO
+# ========================================
+
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include, re_path
 from . import views
@@ -6,16 +10,15 @@ from .views import (
     TrabajadorViewSet,
     UsuarioViewSet,
     NoticiaViewSet,
-    ComentarioViewSet,
     EstadoPublicacionViewSet,
     ImagenViewSet,
     PublicidadViewSet,
     AdminViewSet,
     UserrViewSet,
+    ServicioViewSet,
+    SubcategoriaServicioViewSet,
     redirect_to_home,
     CurrentUserView,
-    ComentarioListCreateAPIView,
-    CommentDeleteView,
     RegisterView,
     LoginView,
     RequestPasswordResetView,
@@ -24,6 +27,7 @@ from .views import (
     EstadoPublicacionList,
     TrabajadorList,
     VerifyTokenView,
+    NewsletterSubscriberViewSet,
     upload_image
 )
 from rest_framework_simplejwt.views import (
@@ -33,62 +37,105 @@ from rest_framework_simplejwt.views import (
 
 # Crear un router y registrar todos los viewsets
 router = DefaultRouter()
-router.register(r'roles', RolViewSet)
+router.register(r'roles', RolViewSet, basename='rol')
 router.register(r'users', UserrViewSet, basename='user')
 router.register(r'admin', AdminViewSet, basename='admin')
-router.register(r'trabajadores', TrabajadorViewSet)
-router.register(r'usuarios', UsuarioViewSet)
-router.register(r'estados', EstadoPublicacionViewSet)
-router.register(r'comentarios', ComentarioViewSet)
-router.register(r'imagenes', ImagenViewSet)
-router.register(r'publicidades', PublicidadViewSet)
-router.register(r'noticias', NoticiaViewSet, basename='noticias')
+router.register(r'trabajadores', TrabajadorViewSet, basename='trabajador')
+router.register(r'usuarios', UsuarioViewSet, basename='usuario')
+router.register(r'estados', EstadoPublicacionViewSet, basename='estado')
+router.register(r'imagenes', ImagenViewSet, basename='imagen')
+router.register(r'publicidades', PublicidadViewSet, basename='publicidad')
+router.register(r'noticias', NoticiaViewSet, basename='noticia')
+router.register(r'servicios', ServicioViewSet, basename='servicio')
+router.register(r'subcategorias-servicios', SubcategoriaServicioViewSet, basename='subcategoria-servicio')
+router.register(r'newsletter', NewsletterSubscriberViewSet, basename='newsletter')
+
 
 urlpatterns = [
+    # === REDIRECCIÓN PRINCIPAL ===
     path('', redirect_to_home, name='redirect_to_home'),
+    
+    # === RUTAS DEL ROUTER (ViewSets) ===
+    # IMPORTANTE: Esto debe ir ANTES de las rutas manuales
     path('', include(router.urls)),
-    path('register/', RegisterView.as_view(), name='register'),
-    path('login/', LoginView.as_view(), name='login'),
-    path('user-profile/', UserProfileView.as_view(), name='user-profile'),
-    path('estados-publicacion/', EstadoPublicacionList.as_view(), name='estado-publicacion-list'),
-    path('trabajadores/', TrabajadorList.as_view(), name='trabajador-list'),
-    path('upload_image/', NoticiaViewSet.as_view({'post': 'upload_image'}), name='upload_image'),
     
-    # URL para detalle de noticia con ID y slug
-    re_path(r'^noticias/(?P<pk>\d+)-(?P<slug>[\w-]+)/$', 
-        NoticiaViewSet.as_view({'get': 'retrieve'}), 
-        name='noticia-detail'),
-    
-    # Mantén la URL original solo con ID para compatibilidad
-    path('noticias/<int:pk>/', NoticiaViewSet.as_view({'get': 'retrieve'}), name='noticia-detail-id-only'),
-    
-    path('noticias/<int:noticia_id>/comentarios/', ComentarioViewSet.as_view({'get': 'list', 'post': 'create'}), name='comentarios'),
-    path('noticias/<int:noticia_id>/comentarios/<int:comment_id>/', ComentarioViewSet.as_view({'delete': 'destroy'}), name='delete_comentario'),
-    path('upload/', upload_image, name='upload_image'),
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('user-profile/', UserProfileView.as_view(), name='update_trabajador_profile'),
-    path('noticias/<int:id>/reacciones/', views.reacciones_noticia, name='reacciones_noticia'),
-    path('noticias/<int:id>/mi-reaccion/', views.mi_reaccion, name='mi_reaccion'),
+    # === AUTENTICACIÓN ===
+    path('auth/register/', RegisterView.as_view(), name='register'),
+    path('auth/login/', LoginView.as_view(), name='login'),
     path('auth/user/', views.current_user, name='current_user'),
-
-    # URLs específicas para las secciones de noticias
-    path('noticias/mas-vistas/', NoticiaViewSet.as_view({'get': 'mas_vistas'}), name='noticias-mas-vistas'),
-    path('noticias/mas-leidas/', NoticiaViewSet.as_view({'get': 'mas_leidas'}), name='noticias-mas-leidas'),
-    path('noticias/populares-semana/', NoticiaViewSet.as_view({'get': 'populares_semana'}), name='noticias-populares-semana'),
-    path('noticias/populares-historico/', NoticiaViewSet.as_view({'get': 'populares_historico'}), name='noticias-populares-historico'),
-    path('noticias/estadisticas-visitas/', NoticiaViewSet.as_view({'get': 'estadisticas_visitas'}), name='noticias-estadisticas-visitas'),
-    path('noticias/recientes/', NoticiaViewSet.as_view({'get': 'recientes'}), name='noticias-recientes'),
-    path('noticias/destacadas/', NoticiaViewSet.as_view({'get': 'destacadas'}), name='noticias-destacadas'),
-    path('noticias/politica/', NoticiaViewSet.as_view({'get': 'politica'}), name='noticias-politica'),
-    path('noticias/cultura/', NoticiaViewSet.as_view({'get': 'cultura'}), name='noticias-cultura'),
-    path('noticias/economia/', NoticiaViewSet.as_view({'get': 'economia'}), name='noticias-economia'),
-    path('noticias/mundo/', NoticiaViewSet.as_view({'get': 'mundo'}), name='noticias-mundo'),
-    path('noticias/tipos-notas/', NoticiaViewSet.as_view({'get': 'tipos_notas'}), name='noticias-tipos-notas'),
-    path('noticias/por-categoria/', NoticiaViewSet.as_view({'get': 'por_categoria'}), name='noticias-por-categoria'),
+    path('auth/current-user/', CurrentUserView.as_view(), name='current-user'),
     
-    path('current-user/', CurrentUserView.as_view(), name='current-user'),
+    # JWT Tokens
+    path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # === RECUPERACIÓN DE CONTRASEÑA ===
     path('password/reset/request/', RequestPasswordResetView.as_view(), name='password-reset-request'),
     path('password/reset/verify/', VerifyTokenView.as_view(), name='password-reset-verify'),
     path('password/reset/confirm/', ResetPasswordView.as_view(), name='password-reset-confirm'),
+    
+    # === PERFIL DE USUARIO ===
+    path('user-profile/', UserProfileView.as_view(), name='user-profile'),
+    
+    # === LISTAS ESPECÍFICAS ===
+    path('estados-publicacion/', EstadoPublicacionList.as_view(), name='estado-publicacion-list'),
+    path('trabajadores/', TrabajadorList.as_view(), name='trabajador-list'),
+    
+    # === UPLOAD DE IMÁGENES ===
+    path('upload/', upload_image, name='upload_image'),
+    
+    # === NOTICIAS - DETALLE ===
+    # NOTA: Estas rutas específicas deben ir DESPUÉS del router
+    re_path(
+        r'^noticias/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
+        NoticiaViewSet.as_view({'get': 'retrieve'}),
+        name='noticia-detail'
+    ),
+    path(
+        'noticias/<int:pk>/',
+        NoticiaViewSet.as_view({'get': 'retrieve'}),
+        name='noticia-detail-id-only'
+    ),
+    
+    # === SERVICIOS - DETALLE ===
+    re_path(
+        r'^servicios/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
+        ServicioViewSet.as_view({'get': 'retrieve'}),
+        name='servicio-detail'
+    ),
+    path(
+        'servicios/<int:pk>/',
+        ServicioViewSet.as_view({'get': 'retrieve'}),
+        name='servicio-detail-id-only'
+    ),
+    
+    # === NEWSLETTER CONFIRMACIÓN ===
+    path('newsletter/confirmar/<str:token>/', 
+         NewsletterSubscriberViewSet.as_view({'get': 'confirmar'}), 
+         name='newsletter-confirmar'),
 ]
+
+# ========================================
+# NOTAS IMPORTANTES:
+# ========================================
+# 
+# El router automáticamente crea estas URLs:
+# 
+# SERVICIOS:
+# - GET /servicios/ -> list (todos los servicios activos)
+# - POST /servicios/ -> create
+# - GET /servicios/{id}/ -> retrieve
+# - PUT /servicios/{id}/ -> update
+# - PATCH /servicios/{id}/ -> partial_update
+# - DELETE /servicios/{id}/ -> destroy
+# - GET /servicios/activos/ -> @action activos
+# - GET /servicios/consultoria-estrategica/ -> @action consultoria_estrategica
+# - GET /servicios/capacitaciones-especializadas/ -> @action capacitaciones_especializadas
+# - POST /servicios/{id}/toggle-activo/ -> @action toggle_activo
+#
+# NOTICIAS:
+# - GET /noticias/ -> list
+# - GET /noticias/recientes/ -> @action (si lo tienes definido)
+# - GET /noticias/destacadas/ -> @action (si lo tienes definido)
+#
+# ========================================

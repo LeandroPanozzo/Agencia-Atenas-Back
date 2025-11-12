@@ -1,15 +1,16 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
-from .models import Rol, Trabajador, UserProfile, Usuario, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad, upload_to_imgbb
+from .models import Rol, Servicio, SubcategoriaServicio, Trabajador, UserProfile, Usuario, Noticia, EstadoPublicacion, Imagen, Publicidad, upload_to_imgbb
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
-from .serializers import UserProfileSerializer, UserRegistrationSerializer, LoginSerializer
+from .serializers import ServicioSerializer, SubcategoriaServicioSerializer, UserProfileSerializer, UserRegistrationSerializer, LoginSerializer
 from django.core.files.storage import default_storage
 import uuid
-
+from .newsletter_utils import send_newsletter_notification
+from .models import NewsletterSubscriber, EstadoPublicacion
 from django.core.files.base import ContentFile
 from rest_framework.decorators import api_view
 import os
@@ -20,13 +21,13 @@ from django.shortcuts import redirect
 from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth.models import User
 from .serializers import UserSerializer
-from django.utils import timezone  # Añade esta importación
-from datetime import timedelta     # Añade esta importación
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from .serializers import (
     RolSerializer, TrabajadorSerializer, UsuarioSerializer, NoticiaSerializer,
-    ComentarioSerializer, EstadoPublicacionSerializer, ImagenSerializer, PublicidadSerializer
+    EstadoPublicacionSerializer, ImagenSerializer, PublicidadSerializer
 )
 
 BASE_QUERYSET = User.objects.all()
@@ -34,7 +35,7 @@ BASE_QUERYSET = User.objects.all()
 class UserrViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.AllowAny]  # Permite el acceso sin autenticación
+    permission_classes = [permissions.AllowAny]
 
 class RolViewSet(viewsets.ModelViewSet):
     queryset = Rol.objects.all()
@@ -43,7 +44,6 @@ class RolViewSet(viewsets.ModelViewSet):
 class TrabajadorViewSet(viewsets.ModelViewSet):
     queryset = Trabajador.objects.all()
     serializer_class = TrabajadorSerializer
-    
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
@@ -56,46 +56,6 @@ class EstadoPublicacionViewSet(viewsets.ModelViewSet):
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()
     serializer_class = ImagenSerializer
-
-class ComentarioViewSet(viewsets.ModelViewSet):
-    queryset = Comentario.objects.all()
-    serializer_class = ComentarioSerializer
-
-    def get_queryset(self):
-        noticia_id = self.kwargs['noticia_id']
-        return self.queryset.filter(noticia_id=noticia_id)
-
-    def destroy(self, request, noticia_id, comment_id):
-        try:
-            comentario = self.get_queryset().get(id=comment_id)
-            comentario.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Comentario.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            # Log the exception for debugging
-            print(f"Error deleting comment: {e}")
-            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class CommentDeleteView(APIView):
-    def delete(self, request, noticia_id, comment_id):
-        try:
-            comment = Comentario.objects.get(id=comment_id, noticia_id=noticia_id)
-            comment.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Comentario.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-
-class ComentarioListCreateAPIView(generics.ListCreateAPIView):
-    serializer_class = ComentarioSerializer
-
-    def get_queryset(self):
-        noticia_id = self.kwargs['noticia_id']
-        return Comentario.objects.filter(noticia_id=noticia_id)
-
-    def perform_create(self, serializer):
-        noticia_id = self.kwargs['noticia_id']
-        serializer.save(noticia_id=noticia_id)
 
 class PublicidadViewSet(viewsets.ModelViewSet):
     queryset = Publicidad.objects.all()
@@ -110,348 +70,303 @@ from django.db.models import Q, Count
 from .models import Noticia, Trabajador
 from .serializers import NoticiaSerializer
 from django.shortcuts import get_object_or_404
-
+from .newsletter_utils import send_newsletter_notification
+from .models import NewsletterSubscriber
 
 class NoticiaViewSet(viewsets.ModelViewSet):
     queryset = Noticia.objects.all()
     serializer_class = NoticiaSerializer
     filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['fecha_publicacion', 'contador_visitas']
+    ordering_fields = ['fecha_publicacion']
     ordering = ['-fecha_publicacion']
     lookup_field = 'pk'
     lookup_value_regex = r'[0-9]+(?:-[a-zA-Z0-9-_]+)?'
     
-    def get_queryset(self):
-        """
-        Customizes the queryset based on query parameters to support efficient filtering.
-        """
-        queryset = Noticia.objects.all()
+
+    def create(self, request, *args, **kwargs):
+        """Override create to handle multipart data properly"""
+        print("=== CREATE NOTICIA DEBUG ===")
+        print("Request data:", request.data)
+        print("Request files:", request.FILES)
         
-        # Filter by autor
-        autor = self.request.query_params.get('autor')
-        if autor:
-            queryset = queryset.filter(autor=autor)
-        
-        # Filter by estado
-        estado = self.request.query_params.get('estado')
-        if estado:
-            queryset = queryset.filter(estado=estado)
-        
-        # Filter by categoria (simplified categories)
-        categoria = self.request.query_params.get('categoria')
-        if categoria:
-            categorias = categoria.split(',')
-            if len(categorias) > 1:
-                category_query = Q()
-                for cat in categorias:
-                    category_query |= Q(categorias__contains=cat)
-                queryset = queryset.filter(category_query)
+        try:
+            # Obtener el usuario autenticado
+            user = request.user
+            if not user.is_authenticated:
+                return Response(
+                    {'error': 'Usuario no autenticado'}, 
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            # Buscar el trabajador asociado
+            try:
+                trabajador = Trabajador.objects.get(user=user)
+            except Trabajador.DoesNotExist:
+                return Response(
+                    {'error': 'No se encontró un trabajador asociado a este usuario'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Función helper para extraer valores de listas
+            def get_value(data, key, default=None):
+                """Extrae el valor de un campo que puede ser lista o valor simple"""
+                value = data.get(key, default)
+                if isinstance(value, list) and len(value) > 0:
+                    return value[0]
+                return value if value != '' else default
+            
+            # Preparar datos extrayendo correctamente los valores
+            data = {}
+            
+            # Campos de texto
+            data['nombre_noticia'] = get_value(request.data, 'nombre_noticia', '')
+            data['subtitulo'] = get_value(request.data, 'subtitulo', '')
+            data['contenido'] = get_value(request.data, 'contenido', '')
+            data['Palabras_clave'] = get_value(request.data, 'Palabras_clave', '')
+            data['fecha_publicacion'] = get_value(request.data, 'fecha_publicacion')
+            
+            # Campos numéricos
+            estado_value = get_value(request.data, 'estado', '1')
+            data['estado'] = int(estado_value) if estado_value else 1
+            
+            autor_value = get_value(request.data, 'autor')
+            if autor_value:
+                data['autor'] = int(autor_value) if autor_value else trabajador.id
             else:
-                queryset = queryset.filter(categorias__contains=categoria)
-        
-        # Filter by date range
-        fecha_desde = self.request.query_params.get('fecha_desde')
-        if fecha_desde:
-            queryset = queryset.filter(fecha_publicacion__gte=fecha_desde)
+                data['autor'] = trabajador.id
             
-        fecha_hasta = self.request.query_params.get('fecha_hasta')
-        if fecha_hasta:
-            queryset = queryset.filter(fecha_publicacion__lte=fecha_hasta)
+            # Campos booleanos
+            solo_subs = get_value(request.data, 'solo_para_subscriptores', 'false')
+            data['solo_para_subscriptores'] = solo_subs.lower() in ['true', '1', 'yes'] if isinstance(solo_subs, str) else bool(solo_subs)
             
-        return queryset
-
-    def list(self, request, *args, **kwargs):
-        """Override list method to apply limit after ordering"""
-        queryset = self.filter_queryset(self.get_queryset())
+            mostrar_cred = get_value(request.data, 'mostrar_creditos', 'true')
+            data['mostrar_creditos'] = mostrar_cred.lower() in ['true', '1', 'yes'] if isinstance(mostrar_cred, str) else bool(mostrar_cred)
+            
+            print(f"Datos procesados: {data}")
+            
+            # Validar campos obligatorios
+            print("Validando campos obligatorios...")
+            if not data.get('nombre_noticia'):
+                print("❌ Error: El título es obligatorio")
+                return Response(
+                    {'error': 'El título es obligatorio'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not data.get('contenido'):
+                print("❌ Error: El contenido es obligatorio")
+                return Response(
+                    {'error': 'El contenido es obligatorio'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            print("✅ Campos obligatorios OK")
+            
+            # CREAR/OBTENER ESTADO AUTOMÁTICAMENTE
+            print(f"Validando/creando estado ID: {data['estado']}")
+            try:
+                estado_obj = EstadoPublicacion.obtener_o_crear_estado(data['estado'])
+                print(f"✅ Estado OK: ID={estado_obj.id}, Nombre={estado_obj.nombre_estado}")
+            except Exception as e:
+                print(f"❌ Error al validar/crear estado: {str(e)}")
+                return Response(
+                    {'error': f'Error al procesar estado: {str(e)}'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validar que el autor existe
+            print(f"Validando autor ID: {data['autor']}")
+            try:
+                autor_obj = Trabajador.objects.get(pk=data['autor'])
+                print(f"✅ Autor encontrado: {autor_obj.nombre} {autor_obj.apellido}")
+            except Trabajador.DoesNotExist:
+                print(f"❌ Autor con ID {data['autor']} no existe")
+                return Response(
+                    {'error': f'Autor con ID {data["autor"]} no existe'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except Exception as e:
+                print(f"❌ Error al buscar autor: {str(e)}")
+                return Response(
+                    {'error': f'Error al validar autor: {str(e)}'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Manejar imagen si existe
+            imagen_file = None
+            if 'imagen_1_local' in request.FILES:
+                imagen_file = request.FILES['imagen_1_local']
+                if isinstance(imagen_file, list) and len(imagen_file) > 0:
+                    imagen_file = imagen_file[0]
+                
+                print(f"Subiendo imagen: {imagen_file.name}, tipo: {type(imagen_file)}")
+                
+                try:
+                    imgbb_url = upload_to_imgbb(imagen_file)
+                    if imgbb_url:
+                        data['imagen_1'] = imgbb_url
+                        print(f"Imagen subida exitosamente: {imgbb_url}")
+                    else:
+                        print("Error al subir imagen a ImgBB - no se obtuvo URL")
+                except Exception as img_error:
+                    print(f"Excepción al subir imagen: {str(img_error)}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Crear el serializer
+            print(f"Creando serializer con datos: {data}")
+            serializer = self.get_serializer(data=data)
+            
+            print("Validando serializer...")
+            if not serializer.is_valid():
+                print("❌ ERRORES DE VALIDACIÓN:")
+                print(serializer.errors)
+                for field, errors in serializer.errors.items():
+                    print(f"  - Campo '{field}': {errors}")
+                return Response(
+                    {'error': 'Datos inválidos', 'details': serializer.errors}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            print("✅ Validación exitosa, guardando noticia...")
+            # Guardar la noticia
+            try:
+                noticia = serializer.save()
+                print(f"✅ Noticia creada exitosamente: ID {noticia.id}, Slug: {noticia.slug}")
+            except Exception as save_error:
+                print(f"❌ Error al guardar noticia: {str(save_error)}")
+                import traceback
+                traceback.print_exc()
+                return Response(
+                    {'error': f'Error al guardar: {str(save_error)}'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # ✅ NUEVO: Si se creó en estado "Publicado", enviar newsletter
+            if data['estado'] == 3:  # Estado Publicado
+                print("\n" + "="*50)
+                print("NOTICIA CREADA EN ESTADO PUBLICADO")
+                print("Enviando newsletter automáticamente...")
+                print("="*50)
+                
+                # Obtener suscriptores activos y confirmados
+                subscribers = NewsletterSubscriber.objects.filter(
+                    activo=True,
+                    confirmado=True
+                )
+                
+                print(f"Total suscriptores activos y confirmados: {subscribers.count()}")
+                
+                if subscribers.exists():
+                    print("Lista de suscriptores:")
+                    for sub in subscribers:
+                        print(f"  - {sub.email}")
+                    
+                    print("\nIniciando envío de newsletter...")
+                    success_count = send_newsletter_notification(noticia, subscribers)
+                    
+                    print(f"Newsletter enviado: {success_count}/{subscribers.count()} suscriptores")
+                    print("="*50 + "\n")
+                else:
+                    print("No hay suscriptores confirmados para enviar newsletter")
+                    print("="*50 + "\n")
+            
+            # Retornar respuesta
+            return Response(
+                serializer.data, 
+                status=status.HTTP_201_CREATED
+            )
+            
+        except ValueError as ve:
+            print(f"Error de valor: {str(ve)}")
+            return Response(
+                {'error': f'Error en los datos proporcionados: {str(ve)}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            print(f"Error inesperado: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'error': f'Error interno del servidor: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    def update(self, request, *args, **kwargs):
+        """
+        Actualizar noticia y enviar newsletter si cambia a estado 'Publicado'
+        """
+        print("\n" + "="*50)
+        print("DEBUG UPDATE NOTICIA")
+        print("="*50)
         
-        limit = self.request.query_params.get('limit')
-        if limit and limit.isdigit():
-            queryset = queryset[:int(limit)]
-        
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
-
-    def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
+        old_estado = instance.estado.id if instance.estado else None
+        print(f"Noticia: {instance.nombre_noticia}")
+        print(f"Estado anterior: {old_estado}")
+        
+        # Actualizar la noticia normalmente
+        response = super().update(request, *args, **kwargs)
+        
+        # Obtener la instancia actualizada
+        instance.refresh_from_db()
+        new_estado = instance.estado.id if instance.estado else None
+        print(f"Estado nuevo: {new_estado}")
+        
+        # Si cambió a estado "Publicado" (ID = 3)
+        if new_estado == 3 and old_estado != 3:
+            print("\nCONDICIONES CUMPLIDAS - Enviando newsletter...")
+            
+            # Obtener suscriptores activos y confirmados
+            subscribers = NewsletterSubscriber.objects.filter(
+                activo=True,
+                confirmado=True
+            )
+            
+            print(f"Total suscriptores: {subscribers.count()}")
+            
+            if subscribers.exists():
+                print("Iniciando envio de newsletter...")
+                success_count = send_newsletter_notification(instance, subscribers)
+                print(f"Newsletter enviado: {success_count}/{subscribers.count()} suscriptores")
+                
+                response.data['newsletter_sent'] = {
+                    'total_subscribers': subscribers.count(),
+                    'successful_sends': success_count
+                }
+            else:
+                print("No hay suscriptores confirmados")
         else:
-            ip = request.META.get('REMOTE_ADDR')
+            print("NO se cumplen las condiciones para enviar newsletter")
+        
+        print("="*50 + "\n")
+        return response
+
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Actualización parcial con el mismo comportamiento
+        """
+        instance = self.get_object()
+        old_estado = instance.estado.id if instance.estado else None
+        
+        response = super().partial_update(request, *args, **kwargs)
+        
+        instance.refresh_from_db()
+        new_estado = instance.estado.id if instance.estado else None
+        
+        # Si cambió a estado "Publicado" (ID = 3)
+        if new_estado == 3 and old_estado != 3:
+            subscribers = NewsletterSubscriber.objects.filter(
+                activo=True,
+                confirmado=True
+            )
             
-        instance.incrementar_visitas(ip_address=ip)
+            if subscribers.exists():
+                success_count = send_newsletter_notification(instance, subscribers)
+                print(f"Newsletter enviado: {success_count}/{subscribers.count()}")
         
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+        return response
 
-    @action(detail=False, methods=['get'])
-    def mas_vistas(self, request):
-        """Return the most viewed news from the past week."""
-        limit = request.query_params.get('limit', 10)
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 10
-            
-        hace_una_semana = timezone.now() - timedelta(days=7)
-        
-        noticias_mas_vistas = self.queryset.filter(
-            estado=3,
-            ultima_actualizacion_contador__gte=hace_una_semana
-        ).order_by('-contador_visitas')[:limit]
-        
-        serializer = self.get_serializer(noticias_mas_vistas, many=True)
-        return Response(serializer.data)
 
-    @action(detail=False, methods=['get'])
-    def mas_leidas(self, request):
-        """Return the most read news of all time."""
-        limit = request.query_params.get('limit', 10)
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 10
-        
-        noticias_mas_leidas = self.queryset.filter(
-            estado=3
-        ).order_by('-contador_visitas_total')[:limit]
-        
-        serializer = self.get_serializer(noticias_mas_leidas, many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=['get'])
-    def populares_semana(self, request):
-        """Alias para mas_vistas"""
-        return self.mas_vistas(request)
-
-    @action(detail=False, methods=['get'])
-    def populares_historico(self, request):
-        """Alias para mas_leidas"""
-        return self.mas_leidas(request)
-
-    @action(detail=False, methods=['get'])
-    def estadisticas_visitas(self, request):
-        """Retorna estadísticas generales de visitas"""
-        from django.db.models import Sum, Avg, Max
-        
-        stats = self.queryset.filter(estado=3).aggregate(
-            total_visitas_semanales=Sum('contador_visitas'),
-            total_visitas_historicas=Sum('contador_visitas_total'),
-            promedio_visitas_semanales=Avg('contador_visitas'),
-            promedio_visitas_historicas=Avg('contador_visitas_total'),
-            max_visitas_semanales=Max('contador_visitas'),
-            max_visitas_historicas=Max('contador_visitas_total'),
-            total_noticias=models.Count('id')
-        )
-        
-        return Response(stats)
-
-    @action(detail=False, methods=['get'])
-    def recientes(self, request):
-        """Return the most recent news."""
-        limit = request.query_params.get('limit', 5)
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 5
-            
-        noticias_recientes = self.queryset.filter(
-            estado=3
-        ).order_by('-fecha_publicacion')[:limit]
-        
-        serializer = self.get_serializer(noticias_recientes, many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=['get'])
-    def destacadas(self, request):
-        """Return featured news for the carousel."""
-        limit = request.query_params.get('limit', 12)
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 12
-            
-        noticias_destacadas = self.queryset.filter(
-            estado=3
-        ).order_by('-fecha_publicacion')[:limit]
-        
-        serializer = self.get_serializer(noticias_destacadas, many=True)
-        return Response(serializer.data)
-
-    # MÉTODOS SIMPLIFICADOS PARA CATEGORÍAS
-    @action(detail=False, methods=['get'])
-    def locales(self, request):
-        """Return news from the Politics category."""
-        return self._get_category_news(request, 'locales')
-
-    @action(detail=False, methods=['get'])
-    def policiales(self, request):
-        """Return news from the Culture category."""
-        return self._get_category_news(request, 'policiales')
-
-    @action(detail=False, methods=['get'])
-    def politica_y_economia(self, request):
-        """Return news from the Economy category."""
-        return self._get_category_news(request, 'politica y economia')
-
-    @action(detail=False, methods=['get'])
-    def provinciales(self, request):
-        """Return news from the World category."""
-        return self._get_category_news(request, 'provinciales')
-
-    @action(detail=False, methods=['get'])
-    def nacionales(self, request):
-        """Return analysis news."""
-        return self._get_category_news(request, 'nacionales')
-
-    @action(detail=False, methods=['get'])
-    def deportes(self, request):
-        """Return opinion news."""
-        return self._get_category_news(request, 'deportes')
-
-    @action(detail=False, methods=['get'])
-    def familia(self, request):
-        """Return informative news."""
-        return self._get_category_news(request, 'familia')
-
-    @action(detail=False, methods=['get'])
-    def internacionales(self, request):
-        """Return interview news."""
-        return self._get_category_news(request, 'internacionales')
-    
-    @action(detail=False, methods=['get'])
-    def interes_general(self, request):
-        """Return interview news."""
-        return self._get_category_news(request, 'interes general')
-
-    def _get_category_news(self, request, category):
-        """Helper method to get news for a specific category."""
-        limit = request.query_params.get('limit', 7)
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 7
-            
-        # Simple category filter
-        category_news = self.queryset.filter(
-            categorias__contains=category,
-            estado=3
-        ).order_by('-fecha_publicacion')[:limit]
-        
-        serializer = self.get_serializer(category_news, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def por_categoria(self, request):
-        """Return news filtered by one or more categories."""
-        categoria = request.query_params.get('categoria')
-        if not categoria:
-            return Response({"error": "Se requiere el parámetro 'categoria'"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        categorias = categoria.split(',')
-        estado = request.query_params.get('estado', 3)
-        limit = request.query_params.get('limit')
-        
-        queryset = self.queryset.filter(estado=estado)
-        
-        if len(categorias) > 1:
-            category_query = Q()
-            for cat in categorias:
-                if cat.strip():
-                    category_query |= Q(categorias__contains=cat.strip())
-            queryset = queryset.filter(category_query)
-        else:
-            queryset = queryset.filter(categorias__contains=categoria)
-            
-        queryset = queryset.order_by('-fecha_publicacion')
-        
-        if limit and limit.isdigit():
-            queryset = queryset[:int(limit)]
-        
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['post'])
-    def agregar_editor(self, request, pk=None):
-        noticia = self.get_object()
-        editor_id = request.data.get('editor_id')
-        
-        if not editor_id:
-            return Response({'error': 'Se requiere un ID de editor'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        try:
-            editor = Trabajador.objects.get(pk=editor_id)
-            noticia.editores_en_jefe.add(editor)
-            return Response({'success': True})
-        except Trabajador.DoesNotExist:
-            return Response({'error': 'Editor no encontrado'}, status=status.HTTP_404_NOT_FOUND)
-    
-    @action(detail=True, methods=['post'])
-    def eliminar_editor(self, request, pk=None):
-        noticia = self.get_object()
-        editor_id = request.data.get('editor_id')
-        
-        if not editor_id:
-            return Response({'error': 'Se requiere un ID de editor'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        try:
-            editor = Trabajador.objects.get(pk=editor_id)
-            noticia.editores_en_jefe.remove(editor)
-            return Response({'success': True})
-        except Trabajador.DoesNotExist:
-            return Response({'error': 'Editor no encontrado'}, status=status.HTTP_404_NOT_FOUND)
-    
-    def get_object(self):
-        """Retrieve the object with support for pk or pk-slug format in the URL."""
-        pk_value = self.kwargs.get(self.lookup_field)
-        
-        if pk_value and '-' in pk_value:
-            pk_parts = pk_value.split('-', 1)
-            pk = pk_parts[0]
-        else:
-            pk = pk_value
-        
-        queryset = self.filter_queryset(self.get_queryset())
-        obj = get_object_or_404(queryset, pk=pk)
-        
-        self.check_object_permissions(self.request, obj)
-        return obj
-            
-    @action(detail=False, methods=['post'])
-    def upload_image(self, request):
-        if 'image' not in request.FILES:
-            return Response({'error': 'No image file found'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        image = request.FILES['image']
-        
-        if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-            return Response({
-                'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG, GIF o WebP.'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        # Verificar tamaño del archivo (ImgBB tiene un límite de 32MB)
-        if image.size > 32 * 1024 * 1024:  # 32MB en bytes
-            return Response({
-                'error': 'El archivo es demasiado grande. El tamaño máximo es 32MB.'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        uploaded_url = upload_to_imgbb(image)
-            
-        if uploaded_url:
-            return Response({
-                'success': True, 
-                'url': uploaded_url,
-                'message': 'Imagen subida exitosamente a ImgBB'
-            })
-        else:
-            return Response({
-                'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 User = get_user_model()
 
 # Vista para el registro de usuarios
@@ -589,7 +504,6 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # Add debugging to see what's being received
         print(f"Login attempt with data: {request.data}")
         
         username = request.data.get('username')
@@ -656,15 +570,13 @@ class AdminViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
-        # Add logic for admin dashboard data
         total_users = User.objects.count()
         total_noticias = Noticia.objects.count()
-        # Add more statistics as needed
         return Response({
             'total_users': total_users,
             'total_noticias': total_noticias,
-            # Add more data as needed
         })
+
 class EstadoPublicacionList(generics.ListAPIView):
     queryset = EstadoPublicacion.objects.all()
     serializer_class = EstadoPublicacionSerializer
@@ -726,120 +638,41 @@ def update_trabajador(request, pk):
         serializer.save()
         return Response(serializer.data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 @api_view(['PUT'])
 def update_user_profile(request):
-    trabajador = request.user.trabajador  # Obtener el trabajador asociado al usuario
+    trabajador = request.user.trabajador
     
-    # Obtener los datos enviados en la solicitud
     nombre = request.data.get('nombre')
     apellido = request.data.get('apellido')
-    foto_perfil_url = request.data.get('foto_perfil')  # URL de la imagen
-    foto_perfil_file = request.FILES.get('foto_perfil_local')  # Imagen local
+    foto_perfil_url = request.data.get('foto_perfil')
+    foto_perfil_file = request.FILES.get('foto_perfil_local')
 
-    # Actualizar los campos básicos si están presentes
     if nombre:
         trabajador.nombre = nombre
     if apellido:
         trabajador.apellido = apellido
 
-    # Manejo de la imagen de perfil
     if foto_perfil_file:
-        # Si se envía una imagen local, se guarda en el servidor
         try:
             file_name = default_storage.save(f'perfil/{foto_perfil_file.name}', ContentFile(foto_perfil_file.read()))
             trabajador.foto_perfil_local = file_name
-            trabajador.foto_perfil = None  # Limpiar el campo de URL si se sube una imagen local
+            trabajador.foto_perfil = None
         except Exception as e:
             return Response({'error': f'Error uploading file: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     elif foto_perfil_url:
-        # Si se envía una URL de la imagen, actualizamos el campo
         trabajador.foto_perfil = foto_perfil_url
-        trabajador.foto_perfil_local = None  # Limpiar el campo de archivo local si se proporciona una URL
+        trabajador.foto_perfil_local = None
 
-    # Guardar los cambios en el perfil del trabajador
     trabajador.save()
 
-    # Devolver una respuesta con los datos actualizados del trabajador
     return Response({
         'nombre': trabajador.nombre,
         'apellido': trabajador.apellido,
-        'foto_perfil': trabajador.get_foto_perfil(),  # Método que devuelve la URL o el archivo local
+        'foto_perfil': trabajador.get_foto_perfil(),
     }, status=status.HTTP_200_OK)
 
-
-#para las reacciones de las noticias:
-
-
-# views.py
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from .models import Noticia, ReaccionNoticia
-from .serializers import ReaccionNoticiaSerializer
-
-@api_view(['GET', 'POST', 'DELETE'])
-def reacciones_noticia(request, id):
-    try:
-        noticia = Noticia.objects.get(pk=id)
-    except Noticia.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
-
-    if request.method == 'GET':
-        # Cualquier usuario puede ver el conteo
-        return Response(noticia.get_conteo_reacciones())
-
-    # Para POST y DELETE requerimos autenticación
-    if not request.user.is_authenticated:
-        return Response(
-            {'error': 'Debes iniciar sesión para realizar esta acción'}, 
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    if request.method == 'POST':
-        tipo_reaccion = request.data.get('tipo_reaccion')
-        if not tipo_reaccion:
-            return Response(
-                {'error': 'tipo_reaccion es requerido'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        reaccion, created = ReaccionNoticia.objects.update_or_create(
-            noticia=noticia,
-            usuario=request.user,
-            defaults={'tipo_reaccion': tipo_reaccion}
-        )
-        
-        serializer = ReaccionNoticiaSerializer(reaccion)
-        return Response(
-            serializer.data, 
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        )
-
-    elif request.method == 'DELETE':
-        ReaccionNoticia.objects.filter(
-            noticia=noticia,
-            usuario=request.user
-        ).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def mi_reaccion(request, id):
-    try:
-        noticia = Noticia.objects.get(pk=id)
-        reaccion = ReaccionNoticia.objects.get(
-            noticia=noticia,
-            usuario=request.user
-        )
-        serializer = ReaccionNoticiaSerializer(reaccion)
-        return Response(serializer.data)
-    except Noticia.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
-    except ReaccionNoticia.DoesNotExist:
-        return Response({'tipo_reaccion': None})
-    
 
 # views.py
 from rest_framework import status
@@ -937,3 +770,338 @@ def current_user(request):
         'first_name': request.user.first_name,
         'last_name': request.user.last_name,
     })
+    
+from rest_framework import viewsets, filters, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
+
+# Agregar este ViewSet para las subcategorías
+
+class SubcategoriaServicioViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet de solo lectura para las subcategorías de servicios
+    """
+    queryset = SubcategoriaServicio.objects.all()
+    serializer_class = SubcategoriaServicioSerializer
+    permission_classes = [AllowAny]
+
+
+# Reemplaza COMPLETAMENTE tu ServicioViewSet en views.py
+
+from rest_framework import viewsets, filters, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
+from .models import Servicio, SubcategoriaServicio, upload_to_imgbb
+from .serializers import ServicioSerializer
+
+class ServicioViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestionar servicios
+    """
+    queryset = Servicio.objects.all()
+    serializer_class = ServicioSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['titulo', 'descripcion', 'palabras_clave']
+    ordering_fields = ['fecha_creacion', 'titulo']
+    ordering = ['-fecha_creacion']
+    lookup_field = 'pk'
+    permission_classes = [IsAuthenticatedOrReadOnly]
+    
+    def list(self, request, *args, **kwargs):
+        """Override list para retornar solo servicios activos por defecto"""
+        queryset = self.queryset.filter(activo=True)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='activos')
+    def activos(self, request):
+        """Obtener todos los servicios activos"""
+        servicios = Servicio.objects.filter(activo=True)
+        
+        # Aplicar límite si se especifica
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                servicios = servicios[:int(limit)]
+            except ValueError:
+                pass
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='consultoria-estrategica')
+    def consultoria_estrategica(self, request):
+        """Obtener servicios de Consultoría Estratégica"""
+        servicios = Servicio.objects.filter(
+            activo=True,
+            subcategoria__nombre='consultoria_estrategica'
+        )
+        
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                servicios = servicios[:int(limit)]
+            except ValueError:
+                pass
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='capacitaciones-especializadas')
+    def capacitaciones_especializadas(self, request):
+        """Obtener servicios de Capacitaciones Especializadas"""
+        servicios = Servicio.objects.filter(
+            activo=True,
+            subcategoria__nombre='capacitaciones_especializadas'
+        )
+        
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                servicios = servicios[:int(limit)]
+            except ValueError:
+                pass
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], url_path='toggle-activo')
+    def toggle_activo(self, request, pk=None):
+        """Cambiar el estado activo/inactivo de un servicio"""
+        try:
+            servicio = self.get_object()
+            servicio.activo = not servicio.activo
+            servicio.save()
+            
+            serializer = self.get_serializer(servicio)
+            return Response({
+                'activo': servicio.activo,
+                'message': f'Servicio {"activado" if servicio.activo else "desactivado"} exitosamente'
+            })
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def create(self, request, *args, **kwargs):
+        """Override create para manejar subcategorías automáticamente"""
+        print("=== CREATE SERVICIO DEBUG ===")
+        print("Request data:", request.data)
+        
+        try:
+            # Función helper para extraer valores
+            def get_value(data, key, default=None):
+                value = data.get(key, default)
+                if isinstance(value, list) and len(value) > 0:
+                    return value[0]
+                return value if value != '' else default
+            
+            # Preparar datos
+            data = {}
+            data['titulo'] = get_value(request.data, 'titulo', '')
+            data['descripcion'] = get_value(request.data, 'descripcion', '')
+            data['palabras_clave'] = get_value(request.data, 'palabras_clave', '')
+            
+            # Manejar subcategoría
+            subcategoria_value = get_value(request.data, 'subcategoria')
+            if subcategoria_value:
+                data['subcategoria'] = int(subcategoria_value) if subcategoria_value else None
+            
+            # Campos booleanos
+            activo_value = get_value(request.data, 'activo', 'true')
+            data['activo'] = activo_value.lower() in ['true', '1', 'yes'] if isinstance(activo_value, str) else bool(activo_value)
+            
+            print(f"Datos procesados: {data}")
+            
+            # Validar título
+            if not data.get('titulo'):
+                return Response(
+                    {'error': 'El título es obligatorio'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validar/crear subcategoría
+            if 'subcategoria' in data and data['subcategoria']:
+                try:
+                    subcategoria_obj = SubcategoriaServicio.obtener_o_crear_subcategoria(data['subcategoria'])
+                    data['subcategoria'] = subcategoria_obj.id
+                    print(f"✅ Subcategoría OK: ID={subcategoria_obj.id}")
+                except Exception as e:
+                    return Response(
+                        {'error': f'Error al procesar subcategoría: {str(e)}'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Manejar imagen
+            if 'imagen_local' in request.FILES:
+                imagen_file = request.FILES['imagen_local']
+                if isinstance(imagen_file, list) and len(imagen_file) > 0:
+                    imagen_file = imagen_file[0]
+                
+                try:
+                    imgbb_url = upload_to_imgbb(imagen_file)
+                    if imgbb_url:
+                        data['imagen'] = imgbb_url
+                        print(f"Imagen subida: {imgbb_url}")
+                except Exception as img_error:
+                    print(f"Error al subir imagen: {str(img_error)}")
+            
+            # Crear servicio
+            serializer = self.get_serializer(data=data)
+            
+            if not serializer.is_valid():
+                print("❌ Errores:", serializer.errors)
+                return Response(
+                    {'error': 'Datos inválidos', 'details': serializer.errors}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            servicio = serializer.save()
+            print(f"✅ Servicio creado: ID {servicio.id}")
+            
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'error': f'Error interno: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from .models import NewsletterSubscriber
+from .serializers import NewsletterSubscriberSerializer
+from .newsletter_utils import send_confirmation_email, send_newsletter_notification
+
+class NewsletterSubscriberViewSet(viewsets.ModelViewSet):
+    queryset = NewsletterSubscriber.objects.all()
+    serializer_class = NewsletterSubscriberSerializer
+    permission_classes = [AllowAny]
+    
+    def create(self, request, *args, **kwargs):
+        """Suscribirse al newsletter"""
+        email = request.data.get('email')
+        nombre = request.data.get('nombre', '')
+        
+        if not email:
+            return Response(
+                {'error': 'El email es requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verificar si ya existe
+        subscriber, created = NewsletterSubscriber.objects.get_or_create(
+            email=email,
+            defaults={'nombre': nombre}
+        )
+        
+        if not created:
+            if subscriber.confirmado:
+                return Response(
+                    {'message': 'Este email ya está suscrito'},
+                    status=status.HTTP_200_OK
+                )
+            else:
+                # Reenviar email de confirmación
+                send_confirmation_email(subscriber)
+                return Response(
+                    {'message': 'Te hemos reenviado el email de confirmación'},
+                    status=status.HTTP_200_OK
+                )
+        
+        # Enviar email de confirmación
+        if send_confirmation_email(subscriber):
+            return Response(
+                {'message': 'Suscripción exitosa. Por favor revisa tu email para confirmar.'},
+                status=status.HTTP_201_CREATED
+            )
+        else:
+            subscriber.delete()
+            return Response(
+                {'error': 'Error al enviar el email de confirmación'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['post'], url_path='confirmar/(?P<token>[^/.]+)')
+    def confirmar(self, request, token=None):
+        """Confirmar suscripción"""
+        try:
+            subscriber = NewsletterSubscriber.objects.get(token_confirmacion=token)
+            subscriber.confirmado = True
+            subscriber.activo = True
+            subscriber.save()
+            
+            return Response(
+                {'message': 'Suscripción confirmada exitosamente'},
+                status=status.HTTP_200_OK
+            )
+        except NewsletterSubscriber.DoesNotExist:
+            return Response(
+                {'error': 'Token inválido'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=False, methods=['post'])
+    def cancelar(self, request):
+        """Cancelar suscripción"""
+        email = request.data.get('email')
+        
+        try:
+            subscriber = NewsletterSubscriber.objects.get(email=email)
+            subscriber.activo = False
+            subscriber.save()
+            
+            return Response(
+                {'message': 'Suscripción cancelada exitosamente'},
+                status=status.HTTP_200_OK
+            )
+        except NewsletterSubscriber.DoesNotExist:
+            return Response(
+                {'error': 'Email no encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=False, methods=['post'])
+    def enviar_noticia(self, request):
+        """Enviar noticia a todos los suscriptores (solo para admins)"""
+        if not request.user.is_staff:
+            return Response(
+                {'error': 'No tienes permisos para esta acción'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        noticia_id = request.data.get('noticia_id')
+        
+        try:
+            noticia = Noticia.objects.get(pk=noticia_id)
+            subscribers = NewsletterSubscriber.objects.filter(
+                activo=True,
+                confirmado=True
+            )
+            
+            if not subscribers.exists():
+                return Response(
+                    {'message': 'No hay suscriptores activos'},
+                    status=status.HTTP_200_OK
+                )
+            
+            success_count = send_newsletter_notification(noticia, subscribers)
+            
+            return Response({
+                'message': f'Newsletter enviado a {success_count} suscriptores',
+                'total': subscribers.count(),
+                'success': success_count
+            }, status=status.HTTP_200_OK)
+            
+        except Noticia.DoesNotExist:
+            return Response(
+                {'error': 'Noticia no encontrada'},
+                status=status.HTTP_404_NOT_FOUND
+            )

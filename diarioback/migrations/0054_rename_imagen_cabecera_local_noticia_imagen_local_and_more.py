@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='noticia',
             name='categorias',
-            field=models.TextField(blank=True, null=True, validators=[diarioback.models.Noticia.validate_categorias]),
+            field=models.TextField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name='noticia',

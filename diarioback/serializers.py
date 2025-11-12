@@ -1,15 +1,17 @@
 from rest_framework import serializers
-from .models import Rol, Trabajador, UserProfile, Usuario, upload_to_imgbb, Noticia, Comentario, EstadoPublicacion, Imagen, Publicidad
+from .models import NewsletterSubscriber, Rol, Servicio, SubcategoriaServicio, Trabajador, UserProfile, Usuario, upload_to_imgbb, Noticia, EstadoPublicacion, Imagen, Publicidad
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
 from rest_framework import generics
 from django.urls import reverse
 
 User = get_user_model()
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email']
+
 # Serializador para el registro de usuarios
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -28,6 +30,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         return user
+    
     def validate_email(self, value):
         # Verifica si el email ya existe en User
         if User.objects.filter(email=value).exists():
@@ -41,12 +44,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 # Serializador para el inicio de sesión de usuarios
 class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField()  # Cambiado de email a username
+    username = serializers.CharField()
     password = serializers.CharField()
 
     def validate(self, data):
         user = authenticate(
-            username=data.get('username'),  # Cambiado de email a username
+            username=data.get('username'),
             password=data.get('password')
         )
         if user is None:
@@ -76,13 +79,6 @@ class ImagenSerializer(serializers.ModelSerializer):
         model = Imagen
         fields = '__all__'
 
-class ComentarioSerializer(serializers.ModelSerializer):
-    autor = serializers.StringRelatedField()  # Representar el usuario por su representación en cadena
-
-    class Meta:
-        model = Comentario
-        fields = '__all__'
-
 class PublicidadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Publicidad
@@ -90,7 +86,7 @@ class PublicidadSerializer(serializers.ModelSerializer):
 
 class TrabajadorSerializer(serializers.ModelSerializer):
     foto_perfil_local = serializers.ImageField(write_only=True, required=False)
-    foto_perfil = serializers.URLField(read_only=True)  # Para retornar la URL de la imagen subida a ImgBB
+    foto_perfil = serializers.URLField(read_only=True)
     descripcion_usuario = serializers.CharField(required=False, allow_blank=True)
     
     class Meta:
@@ -102,7 +98,6 @@ class TrabajadorSerializer(serializers.ModelSerializer):
         trabajador = Trabajador.objects.create(**validated_data)
 
         if foto_perfil_local:
-            # Sube la imagen a ImgBB y guarda la URL
             imgbb_url = upload_to_imgbb(foto_perfil_local)
             if imgbb_url:
                 trabajador.foto_perfil = imgbb_url
@@ -115,16 +110,13 @@ class TrabajadorSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         foto_perfil_local = validated_data.pop('foto_perfil_local', None)
 
-        # Actualiza los campos de nombre y apellido
         for field in ['nombre', 'apellido']:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
 
-        # Actualiza la descripcion_usuario
         if 'descripcion_usuario' in validated_data:
             instance.descripcion_usuario = validated_data['descripcion_usuario']
 
-        # Manejo de la imagen de perfil local
         if foto_perfil_local:
             imgbb_url = upload_to_imgbb(foto_perfil_local)
             if imgbb_url:
@@ -136,6 +128,7 @@ class TrabajadorSerializer(serializers.ModelSerializer):
         return instance
 
 from django.conf import settings
+
 class UserProfileSerializer(serializers.ModelSerializer):
     foto_perfil_local = serializers.ImageField(write_only=True, required=False)
     foto_perfil = serializers.CharField(required=False, allow_blank=True)
@@ -152,18 +145,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
         elif value and value.startswith('/'):
             return f"{settings.MEDIA_URL.rstrip('/')}{value}"
         elif value and value.startswith('http'):
-            return value  # URL externa (como ImgBB)
+            return value
         return value
 
     def update(self, instance, validated_data):
         foto_perfil_local = validated_data.pop('foto_perfil_local', None)
         
-        # Si es un trabajador, los datos se actualizan desde la vista
-        # Este método se usa principalmente para usuarios normales
         if not instance.es_trabajador:
             foto_perfil = validated_data.get('foto_perfil', '')
 
-            # Procesar la imagen local si es proporcionada
             if foto_perfil_local:
                 imgbb_url = upload_to_imgbb(foto_perfil_local)
                 if imgbb_url:
@@ -171,10 +161,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 else:
                     print("Error al subir imagen de perfil a ImgBB")
 
-            # Llamar al método original de update
             return super().update(instance, validated_data)
         
-        # Para trabajadores, solo actualizamos los campos necesarios
         return super().update(instance, validated_data)
 
 
@@ -186,15 +174,7 @@ class NoticiaSerializer(serializers.ModelSerializer):
         many=True
     )
     estado = serializers.PrimaryKeyRelatedField(queryset=EstadoPublicacion.objects.all())
-    # Define categorias as a string field that will be validated against allowed categories
-    categorias = serializers.CharField(
-        required=False, 
-        allow_blank=True,
-        allow_null=True
-    )
-    visitas_semana = serializers.IntegerField(source='visitas_ultima_semana', read_only=True)
-    conteo_reacciones = serializers.SerializerMethodField()
-    # Añadir campos para URL y slug
+    
     url = serializers.SerializerMethodField(read_only=True)
     slug = serializers.CharField(read_only=True)
     imagen_1 = serializers.URLField(allow_blank=True, required=False, allow_null=True)
@@ -204,7 +184,6 @@ class NoticiaSerializer(serializers.ModelSerializer):
     imagen_5 = serializers.URLField(allow_blank=True, required=False, allow_null=True)
     imagen_6 = serializers.URLField(allow_blank=True, required=False, allow_null=True)
 
-    # Add autorData and editorData fields for easier frontend access
     autorData = serializers.SerializerMethodField(read_only=True)
     editoresData = serializers.SerializerMethodField(read_only=True)
 
@@ -212,25 +191,18 @@ class NoticiaSerializer(serializers.ModelSerializer):
         model = Noticia
         fields = [
             'id', 'autor', 'editores_en_jefe', 'nombre_noticia', 'subtitulo', 
-            'fecha_publicacion', 'categorias', 'Palabras_clave', 
+            'fecha_publicacion', 'Palabras_clave', 
             'imagen_1', 'imagen_2', 'imagen_3', 
             'imagen_4', 'imagen_5', 'imagen_6', 
             'estado', 'solo_para_subscriptores', 
-            'contenido', 'tiene_comentarios', 'mostrar_creditos',
-            'conteo_reacciones', 'contador_visitas', 'visitas_semana',
+            'contenido', 'mostrar_creditos',
             'autorData', 'editoresData', 'url', 'slug'
         ]
 
     def get_url(self, obj):
-        """Devuelve la URL amigable con el slug"""
         return obj.get_absolute_url()
 
-    def get_conteo_reacciones(self, obj):
-        return obj.get_conteo_reacciones()
-
     def get_autorData(self, obj):
-        """Return author data if include_autor was requested AND mostrar_creditos is True"""
-        # Verificar si mostrar_creditos está en False
         if not obj.mostrar_creditos:
             return None
         
@@ -247,8 +219,6 @@ class NoticiaSerializer(serializers.ModelSerializer):
         return None
         
     def get_editoresData(self, obj):
-        """Return editors data if include_editor was requested AND mostrar_creditos is True"""
-        # Verificar si mostrar_creditos está en False
         if not obj.mostrar_creditos:
             return None
         
@@ -263,108 +233,79 @@ class NoticiaSerializer(serializers.ModelSerializer):
                 } for editor in obj.editores_en_jefe.all()]
         return None
 
-    def to_internal_value(self, data):
-        """
-        Sobrescribe to_internal_value para manejar correctamente las comillas en el título
-        y otros posibles problemas de caracteres especiales
-        """
-        if hasattr(data, 'dict'):
-            data = data.dict()
+    def validate(self, data):
+        """Validación personalizada"""
+        print("=== VALIDANDO DATOS ===")
+        print("Datos recibidos:", data)
         
-        mutable_data = data.copy() if isinstance(data, dict) else {}
+        # Validar que el autor existe
+        if 'autor' in data:
+            try:
+                autor = Trabajador.objects.get(pk=data['autor'].id if hasattr(data['autor'], 'id') else data['autor'])
+                print(f"Autor válido: {autor.nombre} {autor.apellido}")
+            except Trabajador.DoesNotExist:
+                raise serializers.ValidationError({'autor': 'El autor especificado no existe'})
         
-        # Manejar las categorias si están en formato lista
-        if 'categorias' in mutable_data and isinstance(mutable_data['categorias'], list):
-            mutable_data['categorias'] = ','.join(mutable_data['categorias'])
+        # Validar que el estado existe
+        if 'estado' in data:
+            try:
+                estado = EstadoPublicacion.objects.get(pk=data['estado'].id if hasattr(data['estado'], 'id') else data['estado'])
+                print(f"Estado válido: {estado.nombre_estado}")
+            except EstadoPublicacion.DoesNotExist:
+                raise serializers.ValidationError({'estado': 'El estado especificado no existe'})
         
-        return super().to_internal_value(mutable_data)
+        return data
 
     def create(self, validated_data):
-        validated_data.pop('id', None)
+        print("=== CREANDO NOTICIA ===")
+        print("Validated data:", validated_data)
         
-        print("Validated Data in create:", validated_data)
-
+        # Extraer editores_en_jefe si existen
         editores_en_jefe = validated_data.pop('editores_en_jefe', [])
-
-        # Ensure categorias is properly formatted
-        categorias = validated_data.get('categorias', '')
-        if categorias and isinstance(categorias, list):
-            validated_data['categorias'] = ','.join(categorias)
-        elif not categorias:
-            validated_data['categorias'] = ''
-
+        
+        # Crear la noticia
         noticia = Noticia.objects.create(**validated_data)
-
+        print(f"Noticia creada con ID: {noticia.id}")
+        
+        # Asignar editores si existen
         if editores_en_jefe:
             noticia.editores_en_jefe.set(editores_en_jefe)
+            print(f"Editores asignados: {len(editores_en_jefe)}")
         
-        print("Created Noticia:", noticia)
         return noticia
 
-    def validate_categorias(self, value):
-        """Validate categories against simplified allowed list"""
-        if not value:
-            return ''
-        categories = value.split(',')
-        categories = [cat.strip() for cat in categories if cat.strip()]
-        
-        # Verificar contra las categorías simplificadas
-        invalid_cats = [cat for cat in categories if cat not in Noticia.FLAT_CATEGORIAS]
-        
-        if invalid_cats:
-            raise serializers.ValidationError(f'Invalid categories: {", ".join(invalid_cats)}. Valid categories are: {", ".join(Noticia.FLAT_CATEGORIAS)}')
-        return ','.join(categories)
-
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ret['categorias'] = instance.get_categorias()
-        return ret
-
     def update(self, instance, validated_data):
-        print("Validated Data in update:", validated_data)
+        print("=== ACTUALIZANDO NOTICIA ===")
+        print("Validated data:", validated_data)
         
         editores = validated_data.pop('editores_en_jefe', None)
-        
-        # Ensure categorias is properly formatted
-        categorias = validated_data.get('categorias', '')
-        if categorias and isinstance(categorias, list):
-            validated_data['categorias'] = ','.join(categorias)
-        elif not categorias:
-            validated_data['categorias'] = instance.categorias
 
-        # Update fields
+        # Actualizar campos
         fields_to_update = [
-            'nombre_noticia', 'fecha_publicacion', 'categorias', 
+            'nombre_noticia', 'fecha_publicacion', 
             'Palabras_clave', 'subtitulo', 'solo_para_subscriptores', 
-            'contenido', 'tiene_comentarios', 'estado', 
-            'autor','mostrar_creditos'
+            'contenido', 'estado', 
+            'autor', 'mostrar_creditos'
         ]
         for field in fields_to_update:
             if field in validated_data:
                 setattr(instance, field, validated_data.get(field, getattr(instance, field)))
 
-        # Handle image updates
-        for i in range(7):
-            field_name = f'imagen_{i}' if i > 0 else 'imagen_cabecera'
-            image_url = validated_data.get(field_name)
-            if image_url:
-                setattr(instance, field_name, image_url)
+        # Manejar imágenes
+        for i in range(1, 7):
+            field_name = f'imagen_{i}'
+            if field_name in validated_data:
+                setattr(instance, field_name, validated_data[field_name])
         
+        # Actualizar editores
         if editores is not None:
             instance.editores_en_jefe.clear()
             instance.editores_en_jefe.add(*editores)
         
         instance.save()
-
-        print("Updated Noticia:", instance)
+        print(f"Noticia actualizada: ID {instance.id}")
+        
         return instance
-from .models import ReaccionNoticia
-
-class ReaccionNoticiaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ReaccionNoticia
-        fields = ['id', 'tipo_reaccion', 'fecha_creacion']
-        read_only_fields = ['usuario']
 
 # serializers.py
 from rest_framework import serializers
@@ -377,34 +318,156 @@ class RequestPasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField()
     
     def validate_email(self, value):
-        # Verifica si existe un usuario con este email
         if not User.objects.filter(email=value).exists():
             raise serializers.ValidationError("No existe un usuario con este correo electrónico.")
         return value
 
 class VerifyTokenSerializer(serializers.Serializer):
-    token = serializers.CharField(max_length=6)  # Cambiado de UUIDField a CharField
+    token = serializers.CharField(max_length=6)
     
     def validate_token(self, value):
-        # Verifica si el token existe y es válido
         token_obj = PasswordResetToken.objects.filter(token=value).first()
         if not token_obj or not token_obj.is_valid():
             raise serializers.ValidationError("Token inválido o expirado.")
         return value
 
 class ResetPasswordSerializer(serializers.Serializer):
-    token = serializers.CharField(max_length=6)  # Cambiado de UUIDField a CharField
+    token = serializers.CharField(max_length=6)
     password = serializers.CharField(min_length=8, write_only=True)
     confirm_password = serializers.CharField(min_length=8, write_only=True)
     
     def validate(self, data):
-        # Verifica que las contraseñas coincidan
         if data['password'] != data['confirm_password']:
             raise serializers.ValidationError("Las contraseñas no coinciden.")
         
-        # Verifica si el token existe y es válido
         token_obj = PasswordResetToken.objects.filter(token=data['token']).first()
         if not token_obj or not token_obj.is_valid():
             raise serializers.ValidationError("Token inválido o expirado.")
         
         return data
+    
+# Agregar este serializador ANTES de ServicioSerializer
+
+class SubcategoriaServicioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubcategoriaServicio
+        fields = ['id', 'nombre']
+
+
+# Actualizar el SerializadorServicio
+# Reemplaza el ServicioSerializer en serializers.py
+
+class ServicioSerializer(serializers.ModelSerializer):
+    imagen_local = serializers.ImageField(write_only=True, required=False)
+    url = serializers.SerializerMethodField(read_only=True)
+    slug = serializers.CharField(read_only=True)
+    
+    # Campo para manejar la subcategoría
+    subcategoria = serializers.PrimaryKeyRelatedField(
+        queryset=SubcategoriaServicio.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    subcategoriaData = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = Servicio
+        fields = [
+            'id',
+            'titulo',
+            'imagen',
+            'imagen_local',
+            'descripcion',
+            'palabras_clave',
+            'subcategoria',
+            'subcategoriaData',
+            'fecha_creacion',
+            'fecha_actualizacion',
+            'activo',
+            'slug',
+            'url'
+        ]
+        read_only_fields = ['fecha_creacion', 'fecha_actualizacion', 'slug', 'url']
+
+    def get_url(self, obj):
+        """Devuelve la URL amigable con el slug"""
+        return obj.get_absolute_url()
+    
+    def get_subcategoriaData(self, obj):
+        """Devuelve datos completos de la subcategoría"""
+        if obj.subcategoria:
+            return {
+                'id': obj.subcategoria.id,
+                'nombre': obj.subcategoria.nombre,
+                'display_nombre': obj.subcategoria.get_nombre_display()
+            }
+        return None
+
+    def validate_subcategoria(self, value):
+        """
+        Validar que la subcategoría existe, o crearla si es un ID válido
+        """
+        if value is None:
+            # Si no se proporciona, usar Consultoría por defecto
+            return SubcategoriaServicio.get_consultoria_estrategica()
+        
+        # Si ya es un objeto, devolverlo
+        if isinstance(value, SubcategoriaServicio):
+            return value
+        
+        # Si es un ID, intentar obtenerlo o crearlo
+        if isinstance(value, int):
+            try:
+                return SubcategoriaServicio.obtener_o_crear_subcategoria(value)
+            except Exception as e:
+                raise serializers.ValidationError(f"Error al procesar subcategoría: {str(e)}")
+        
+        return value
+
+    def create(self, validated_data):
+        imagen_local = validated_data.pop('imagen_local', None)
+        
+        # ✅ GARANTIZAR: Siempre hay una subcategoría válida
+        if 'subcategoria' not in validated_data or validated_data['subcategoria'] is None:
+            validated_data['subcategoria'] = SubcategoriaServicio.get_consultoria_estrategica()
+        
+        servicio = Servicio.objects.create(**validated_data)
+        
+        if imagen_local:
+            imgbb_url = upload_to_imgbb(imagen_local)
+            if imgbb_url:
+                servicio.imagen = imgbb_url
+                servicio.save()
+        
+        return servicio
+
+    def update(self, instance, validated_data):
+        imagen_local = validated_data.pop('imagen_local', None)
+        
+        # ✅ NUEVO: Si se cambia la subcategoría, validarla
+        if 'subcategoria' in validated_data:
+            subcategoria = validated_data['subcategoria']
+            if isinstance(subcategoria, int):
+                validated_data['subcategoria'] = SubcategoriaServicio.obtener_o_crear_subcategoria(subcategoria)
+        
+        # Actualizar campos básicos incluyendo subcategoria
+        for field in ['titulo', 'descripcion', 'palabras_clave', 'activo', 'subcategoria']:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        
+        # Actualizar imagen si se proporciona una nueva
+        if imagen_local:
+            imgbb_url = upload_to_imgbb(imagen_local)
+            if imgbb_url:
+                instance.imagen = imgbb_url
+        elif 'imagen' in validated_data:
+            instance.imagen = validated_data['imagen']
+        
+        instance.save()
+        return instance
+    
+class NewsletterSubscriberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NewsletterSubscriber
+        fields = ['id', 'email', 'nombre', 'fecha_suscripcion', 'activo', 'confirmado']
+        read_only_fields = ['fecha_suscripcion', 'confirmado']

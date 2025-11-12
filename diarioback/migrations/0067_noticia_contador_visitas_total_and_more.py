@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('diarioback', '0066_alter_noticia_categorias_alter_noticia_slug'),
+        ('diarioback', '0065_alter_noticia_categorias_and_more'),
     ]
 
     operations = [
@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='noticia',
             name='categorias',
-            field=models.TextField(blank=True, null=True, validators=[diarioback.models.Noticia.validate_categorias]),
+            field=models.TextField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name='noticia',

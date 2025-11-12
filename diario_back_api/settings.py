@@ -2,7 +2,7 @@
 from pathlib import Path
 import os
 from datetime import timedelta
-import dj_database_url
+# import dj_database_url  # Ya no necesitas esto para SQLite
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -60,13 +60,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'diario_back_api.wsgi.application'
 
-# ✅ CONEXIÓN A NEON (POSTGRESQL)
+# ✅ CONFIGURACIÓN CON SQLITE
 DATABASES = {
-    'default': dj_database_url.parse(
-        'postgresql://neondb_owner:npg_7RWIUlEvCtk0@ep-broad-wind-a8sgh7a0-pooler.eastus2.azure.neon.tech/elcentinelaDB?sslmode=require&channel_binding=require',
-        conn_max_age=600,
-        ssl_require=True
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -91,8 +90,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://diarioelcentinela.netlify.app",  # ✅ Agregás esta línea
-
+    "https://diarioelcentinela.netlify.app",
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
@@ -132,3 +130,16 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'diarioelcentinelasoporte@gmail.com')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'opjm aahz andp mmlj')
+
+# Configuración de Mailjet
+MAILJET_API_KEY = '9d71630638e56a42e17e1c55556990f9'
+MAILJET_SECRET_KEY = 'b7f6131b0772d6981956f3d94a600ecf'
+
+# Email settings
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'in-v3.mailjet.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = MAILJET_API_KEY
+EMAIL_HOST_PASSWORD = MAILJET_SECRET_KEY
+DEFAULT_FROM_EMAIL = 'wacallowacallo@gmail.com'
