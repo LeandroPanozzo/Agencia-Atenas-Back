@@ -1,14 +1,15 @@
-# ... imports iniciales
+# deploy para render
 from pathlib import Path
 import os
 from datetime import timedelta
+import dj_database_url
 # import dj_database_url  # Ya no necesitas esto para SQLite
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get('SECRET_KEY', default='your secret key')
 
-DEBUG = True
+DEBUG = 'RENDER' not in os.environ
 
 ALLOWED_HOSTS = ['*']
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -61,13 +62,13 @@ TEMPLATES = [
 WSGI_APPLICATION = 'diario_back_api.wsgi.application'
 
 # ✅ CONFIGURACIÓN CON SQLITE
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
 
+DATABASES = {
+    'default': dj_database_url.config(
+        default='sqlite:///db.sqlite3',
+        conn_max_age=600
+    )
+}
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -143,3 +144,13 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = MAILJET_API_KEY
 EMAIL_HOST_PASSWORD = MAILJET_SECRET_KEY
 DEFAULT_FROM_EMAIL = 'wacallowacallo@gmail.com'
+
+
+
+
+STATIC_URL = '/static/'
+
+if not DEBUG:
+    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
