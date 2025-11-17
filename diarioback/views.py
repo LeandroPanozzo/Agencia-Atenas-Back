@@ -1,77 +1,107 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
-from .models import Rol, Servicio, SubcategoriaServicio, Trabajador, UserProfile, Usuario, Noticia, EstadoPublicacion, Imagen, Publicidad, upload_to_imgbb
-from rest_framework.views import APIView
-from rest_framework.decorators import action
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import get_user_model
-from django.contrib.auth import authenticate
-from .serializers import ServicioSerializer, SubcategoriaServicioSerializer, UserProfileSerializer, UserRegistrationSerializer, LoginSerializer
-from django.core.files.storage import default_storage
-import uuid
-from .newsletter_utils import send_newsletter_notification
-from .models import NewsletterSubscriber, EstadoPublicacion
-from django.core.files.base import ContentFile
-from rest_framework.decorators import api_view
-import os
-from django.conf import settings
-from rest_framework import generics
-from rest_framework.exceptions import NotFound
-from django.shortcuts import redirect
-from rest_framework.exceptions import PermissionDenied
-from django.contrib.auth.models import User
-from .serializers import UserSerializer
-from django.utils import timezone
-from datetime import timedelta
-from rest_framework.permissions import AllowAny, IsAuthenticated
+# views.py - CÓDIGO COMPLETO SIN SISTEMA DE ROLES
 
-from .serializers import (
-    RolSerializer, TrabajadorSerializer, UsuarioSerializer, NoticiaSerializer,
-    EstadoPublicacionSerializer, ImagenSerializer, PublicidadSerializer
+from rest_framework import viewsets, permissions, status, filters
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework import generics
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from django.contrib.auth import get_user_model, authenticate
+from django.contrib.auth.models import User
+from django.shortcuts import redirect, get_object_or_404
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.conf import settings
+from django.utils import timezone
+from django.db.models import Q, Count
+from django.core.mail import send_mail
+
+from datetime import timedelta
+import os
+import uuid
+
+from .models import (
+    Servicio, 
+    SubcategoriaServicio, 
+    Trabajador, 
+    UserProfile, 
+    Usuario, 
+    Noticia, 
+    EstadoPublicacion, 
+    Imagen, 
+    Publicidad, 
+    upload_to_imgbb,
+    NewsletterSubscriber,
+    PasswordResetToken
 )
 
+from .serializers import (
+    ServicioSerializer, 
+    SubcategoriaServicioSerializer, 
+    UserProfileSerializer, 
+    UserRegistrationSerializer, 
+    LoginSerializer,
+    TrabajadorSerializer, 
+    UsuarioSerializer, 
+    NoticiaSerializer,
+    EstadoPublicacionSerializer, 
+    ImagenSerializer, 
+    PublicidadSerializer,
+    UserSerializer,
+    RequestPasswordResetSerializer,
+    VerifyTokenSerializer,
+    ResetPasswordSerializer,
+    NewsletterSubscriberSerializer
+)
+
+from .newsletter_utils import send_newsletter_notification, send_confirmation_email
+
+
+User = get_user_model()
 BASE_QUERYSET = User.objects.all()
+
+
+# ============================================
+# VIEWSETS BÁSICOS
+# ============================================
 
 class UserrViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.AllowAny]
 
-class RolViewSet(viewsets.ModelViewSet):
-    queryset = Rol.objects.all()
-    serializer_class = RolSerializer
 
 class TrabajadorViewSet(viewsets.ModelViewSet):
     queryset = Trabajador.objects.all()
     serializer_class = TrabajadorSerializer
 
+
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
+
 
 class EstadoPublicacionViewSet(viewsets.ModelViewSet):
     queryset = EstadoPublicacion.objects.all()
     serializer_class = EstadoPublicacionSerializer
 
+
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()
     serializer_class = ImagenSerializer
+
 
 class PublicidadViewSet(viewsets.ModelViewSet):
     queryset = Publicidad.objects.all()
     serializer_class = PublicidadSerializer
 
-from rest_framework import viewsets, filters, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from django.utils import timezone
-from datetime import timedelta
-from django.db.models import Q, Count
-from .models import Noticia, Trabajador
-from .serializers import NoticiaSerializer
-from django.shortcuts import get_object_or_404
-from .newsletter_utils import send_newsletter_notification
-from .models import NewsletterSubscriber
+
+# ============================================
+# VIEWSET DE NOTICIAS
+# ============================================
 
 class NoticiaViewSet(viewsets.ModelViewSet):
     queryset = Noticia.objects.all()
@@ -90,7 +120,6 @@ class NoticiaViewSet(viewsets.ModelViewSet):
         print("Request files:", request.FILES)
         
         try:
-            # Obtener el usuario autenticado
             user = request.user
             if not user.is_authenticated:
                 return Response(
@@ -98,7 +127,6 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            # Buscar el trabajador asociado
             try:
                 trabajador = Trabajador.objects.get(user=user)
             except Trabajador.DoesNotExist:
@@ -107,7 +135,6 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Función helper para extraer valores de listas
             def get_value(data, key, default=None):
                 """Extrae el valor de un campo que puede ser lista o valor simple"""
                 value = data.get(key, default)
@@ -115,7 +142,6 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                     return value[0]
                 return value if value != '' else default
             
-            # Preparar datos extrayendo correctamente los valores
             data = {}
             
             # Campos de texto
@@ -242,7 +268,7 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            # ✅ NUEVO: Si se creó en estado "Publicado", enviar newsletter
+            # Si se creó en estado "Publicado", enviar newsletter
             if data['estado'] == 3:  # Estado Publicado
                 print("\n" + "="*50)
                 print("NOTICIA CREADA EN ESTADO PUBLICADO")
@@ -291,10 +317,9 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                 {'error': f'Error interno del servidor: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
     def update(self, request, *args, **kwargs):
-        """
-        Actualizar noticia y enviar newsletter si cambia a estado 'Publicado'
-        """
+        """Actualizar noticia y enviar newsletter si cambia a estado 'Publicado'"""
         print("\n" + "="*50)
         print("DEBUG UPDATE NOTICIA")
         print("="*50)
@@ -342,9 +367,7 @@ class NoticiaViewSet(viewsets.ModelViewSet):
         return response
 
     def partial_update(self, request, *args, **kwargs):
-        """
-        Actualización parcial con el mismo comportamiento
-        """
+        """Actualización parcial con el mismo comportamiento"""
         instance = self.get_object()
         old_estado = instance.estado.id if instance.estado else None
         
@@ -367,9 +390,10 @@ class NoticiaViewSet(viewsets.ModelViewSet):
         return response
 
 
-User = get_user_model()
+# ============================================
+# AUTENTICACIÓN Y REGISTRO
+# ============================================
 
-# Vista para el registro de usuarios
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
@@ -386,8 +410,86 @@ class RegisterView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-def redirect_to_home(request):
-    return redirect('/home/')
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        print(f"Login attempt with data: {request.data}")
+        
+        username = request.data.get('username')
+        password = request.data.get('password')
+        
+        if not username or not password:
+            return Response({'error': 'Please provide both username and password'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        
+        # Authenticate user
+        user = authenticate(username=username, password=password)
+        
+        if user is None:
+            return Response({'error': 'Invalid credentials'}, 
+                            status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Generate tokens
+        refresh = RefreshToken.for_user(user)
+        
+        # Check if user is a worker (Trabajador)
+        try:
+            from .models import Trabajador
+            trabajador = Trabajador.objects.get(user=user)
+            from .serializers import TrabajadorSerializer
+            return Response({
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                'trabajador': TrabajadorSerializer(trabajador).data
+            })
+        except Exception as e:
+            # Regular user or error occurred
+            print(f"Error fetching trabajador: {e}")
+            from .serializers import UserSerializer
+            return Response({
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                'user': UserSerializer(user).data
+            })
+
+
+class CurrentUserView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        user = request.user
+        
+        # Check if user is a worker
+        try:
+            trabajador = Trabajador.objects.get(user=user)
+            return Response({
+                'isWorker': True,
+                **TrabajadorSerializer(trabajador).data
+            })
+        except Trabajador.DoesNotExist:
+            # Regular user
+            return Response({
+                'isWorker': False,
+                **UserSerializer(user).data
+            })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_user(request):
+    return Response({
+        'id': request.user.id,
+        'email': request.user.email,
+        'username': request.user.username,
+        'first_name': request.user.first_name,
+        'last_name': request.user.last_name,
+    })
+
+
+# ============================================
+# PERFIL DE USUARIO
+# ============================================
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserProfileSerializer
@@ -499,132 +601,6 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         serializer = self.get_serializer(profile)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-# Vista para el inicio de sesión de usuarios
-class LoginView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        print(f"Login attempt with data: {request.data}")
-        
-        username = request.data.get('username')
-        password = request.data.get('password')
-        
-        if not username or not password:
-            return Response({'error': 'Please provide both username and password'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        
-        # Authenticate user
-        user = authenticate(username=username, password=password)
-        
-        if user is None:
-            return Response({'error': 'Invalid credentials'}, 
-                            status=status.HTTP_401_UNAUTHORIZED)
-        
-        # Generate tokens
-        refresh = RefreshToken.for_user(user)
-        
-        # Check if user is a worker (Trabajador)
-        try:
-            from .models import Trabajador
-            trabajador = Trabajador.objects.get(user=user)
-            from .serializers import TrabajadorSerializer
-            return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'trabajador': TrabajadorSerializer(trabajador).data
-            })
-        except Exception as e:
-            # Regular user or error occurred
-            print(f"Error fetching trabajador: {e}")
-            from .serializers import UserSerializer
-            return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'user': UserSerializer(user).data
-            })
-
-class CurrentUserView(APIView):
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request):
-        user = request.user
-        
-        # Check if user is a worker
-        try:
-            trabajador = Trabajador.objects.get(user=user)
-            return Response({
-                'isWorker': True,
-                **TrabajadorSerializer(trabajador).data
-            })
-        except Trabajador.DoesNotExist:
-            # Regular user
-            return Response({
-                'isWorker': False,
-                **UserSerializer(user).data
-            })
-
-class AdminViewSet(viewsets.ModelViewSet):
-    queryset = BASE_QUERYSET.filter(is_staff=True)
-    serializer_class = UserRegistrationSerializer
-    permission_classes = [permissions.IsAdminUser]
-
-    @action(detail=False, methods=['get'])
-    def dashboard(self, request):
-        total_users = User.objects.count()
-        total_noticias = Noticia.objects.count()
-        return Response({
-            'total_users': total_users,
-            'total_noticias': total_noticias,
-        })
-
-class EstadoPublicacionList(generics.ListAPIView):
-    queryset = EstadoPublicacion.objects.all()
-    serializer_class = EstadoPublicacionSerializer
-
-class TrabajadorList(generics.ListAPIView):
-    queryset = Trabajador.objects.all()
-    serializer_class = TrabajadorSerializer
-
-class UserProfileViewSet(viewsets.ModelViewSet):
-    queryset = UserProfile.objects.all()
-    serializer_class = UserProfileSerializer
-
-    def perform_update(self, serializer):
-        serializer.save()
-
-
-@api_view(['POST'])
-def upload_image(request):
-    if 'image' not in request.FILES:
-        return Response({'error': 'No image file found'}, status=status.HTTP_400_BAD_REQUEST)
-
-    image = request.FILES['image']
-
-    # Verificar tipo de archivo
-    if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-        return Response({
-            'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG, GIF o WebP.'
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    # Verificar tamaño del archivo (ImgBB tiene un límite de 32MB)
-    if image.size > 32 * 1024 * 1024:  # 32MB en bytes
-        return Response({
-            'error': 'El archivo es demasiado grande. El tamaño máximo es 32MB.'
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    # Subir directamente a ImgBB
-    uploaded_url = upload_to_imgbb(image)
-
-    if uploaded_url:
-        return Response({
-            'success': True, 
-            'url': uploaded_url,
-            'message': 'Imagen subida exitosamente a ImgBB'
-        })
-    else:
-        return Response({
-            'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['PUT'])
 def update_trabajador(request, pk):
@@ -638,6 +614,7 @@ def update_trabajador(request, pk):
         serializer.save()
         return Response(serializer.data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @api_view(['PUT'])
 def update_user_profile(request):
@@ -674,17 +651,9 @@ def update_user_profile(request):
     }, status=status.HTTP_200_OK)
 
 
-# views.py
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from django.contrib.auth import get_user_model
-from .models import PasswordResetToken
-from .serializers import RequestPasswordResetSerializer, VerifyTokenSerializer, ResetPasswordSerializer
-from django.core.mail import send_mail
-from django.conf import settings
-
-User = get_user_model()
+# ============================================
+# RECUPERACIÓN DE CONTRASEÑA
+# ============================================
 
 class RequestPasswordResetView(APIView):
     def post(self, request):
@@ -725,6 +694,7 @@ class RequestPasswordResetView(APIView):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class VerifyTokenView(APIView):
     def post(self, request):
         serializer = VerifyTokenSerializer(data=request.data)
@@ -732,6 +702,7 @@ class VerifyTokenView(APIView):
             return Response({"message": "Token válido."}, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class ResetPasswordView(APIView):
     def post(self, request):
@@ -755,28 +726,98 @@ class ResetPasswordView(APIView):
             return Response({"message": "Contraseña actualizada exitosamente."}, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def current_user(request):
-    return Response({
-        'id': request.user.id,
-        'email': request.user.email,
-        'username': request.user.username,
-        'first_name': request.user.first_name,
-        'last_name': request.user.last_name,
-    })
-    
-from rest_framework import viewsets, filters, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
 
-# Agregar este ViewSet para las subcategorías
+# ============================================
+# ADMIN VIEWSET
+# ============================================
+
+class AdminViewSet(viewsets.ModelViewSet):
+    queryset = BASE_QUERYSET.filter(is_staff=True)
+    serializer_class = UserRegistrationSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    @action(detail=False, methods=['get'])
+    def dashboard(self, request):
+        total_users = User.objects.count()
+        total_noticias = Noticia.objects.count()
+        return Response({
+            'total_users': total_users,
+            'total_noticias': total_noticias,
+        })
+
+
+# ============================================
+# LISTAS GENERICAS
+# ============================================
+
+class EstadoPublicacionList(generics.ListAPIView):
+    queryset = EstadoPublicacion.objects.all()
+    serializer_class = EstadoPublicacionSerializer
+
+
+class TrabajadorList(generics.ListAPIView):
+    queryset = Trabajador.objects.all()
+    serializer_class = TrabajadorSerializer
+
+
+class UserProfileViewSet(viewsets.ModelViewSet):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializer
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+
+# ============================================
+# UPLOAD DE IMÁGENES
+# ============================================
+
+@api_view(['POST'])
+def upload_image(request):
+    if 'image' not in request.FILES:
+        return Response({'error': 'No image file found'}, status=status.HTTP_400_BAD_REQUEST)
+
+    image = request.FILES['image']
+
+    # Verificar tipo de archivo
+    if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+        return Response({
+            'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG, GIF o WebP.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Verificar tamaño del archivo (ImgBB tiene un límite de 32MB)
+    if image.size > 32 * 1024 * 1024:  # 32MB en bytes
+        return Response({
+            'error': 'El archivo es demasiado grande. El tamaño máximo es 32MB.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Subir directamente a ImgBB
+    uploaded_url = upload_to_imgbb(image)
+
+    if uploaded_url:
+        return Response({
+            'success': True, 
+            'url': uploaded_url,
+            'message': 'Imagen subida exitosamente a ImgBB'
+        })
+    else:
+        return Response({
+            'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ============================================
+# REDIRECCIÓN
+# ============================================
+
+def redirect_to_home(request):
+    return redirect('/home/')
+
+
+# ============================================
+# SERVICIOS VIEWSET
+# ============================================
 
 class SubcategoriaServicioViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -786,15 +827,6 @@ class SubcategoriaServicioViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SubcategoriaServicioSerializer
     permission_classes = [AllowAny]
 
-
-# Reemplaza COMPLETAMENTE tu ServicioViewSet en views.py
-
-from rest_framework import viewsets, filters, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
-from .models import Servicio, SubcategoriaServicio, upload_to_imgbb
-from .serializers import ServicioSerializer
 
 class ServicioViewSet(viewsets.ModelViewSet):
     """
@@ -972,13 +1004,11 @@ class ServicioViewSet(viewsets.ModelViewSet):
                 {'error': f'Error interno: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from .models import NewsletterSubscriber
-from .serializers import NewsletterSubscriberSerializer
-from .newsletter_utils import send_confirmation_email, send_newsletter_notification
+
+
+# ============================================
+# NEWSLETTER VIEWSET
+# ============================================
 
 class NewsletterSubscriberViewSet(viewsets.ModelViewSet):
     queryset = NewsletterSubscriber.objects.all()
@@ -1105,3 +1135,175 @@ class NewsletterSubscriberViewSet(viewsets.ModelViewSet):
                 {'error': 'Noticia no encontrada'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+# Agregar estos imports al inicio de views.py
+from .models import Contacto
+from .serializers import ContactoSerializer
+
+# Agregar este ViewSet al final de views.py
+
+class ContactoViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestionar mensajes de contacto
+    """
+    queryset = Contacto.objects.all()
+    serializer_class = ContactoSerializer
+    
+    def get_permissions(self):
+        """
+        Permisos personalizados:
+        - Cualquiera puede crear (POST)
+        - Solo staff puede ver la lista y detalles (GET, PUT, DELETE)
+        """
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), permissions.IsAdminUser()]
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Crear un nuevo mensaje de contacto
+        """
+        print("=== CREAR MENSAJE DE CONTACTO ===")
+        print("Datos recibidos:", request.data)
+        
+        serializer = self.get_serializer(data=request.data)
+        
+        if not serializer.is_valid():
+            print("❌ Errores de validación:", serializer.errors)
+            return Response(
+                {'error': 'Datos inválidos', 'details': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            contacto = serializer.save()
+            print(f"✅ Mensaje de contacto creado: ID {contacto.id}")
+            
+            # Opcional: Enviar notificación por email a los administradores
+            try:
+                self._enviar_notificacion_admin(contacto)
+            except Exception as email_error:
+                print(f"⚠️ Error al enviar notificación: {email_error}")
+            
+            return Response(
+                {
+                    'success': True,
+                    'message': 'Mensaje enviado exitosamente. Te contactaremos pronto.',
+                    'data': serializer.data
+                },
+                status=status.HTTP_201_CREATED
+            )
+        
+        except Exception as e:
+            print(f"❌ Error al crear mensaje: {str(e)}")
+            return Response(
+                {'error': f'Error al enviar mensaje: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Listar todos los mensajes (solo para staff)
+        """
+        queryset = self.get_queryset()
+        
+        # Filtros opcionales
+        leido = request.query_params.get('leido')
+        respondido = request.query_params.get('respondido')
+        
+        if leido is not None:
+            queryset = queryset.filter(leido=leido.lower() == 'true')
+        
+        if respondido is not None:
+            queryset = queryset.filter(respondido=respondido.lower() == 'true')
+        
+        serializer = self.get_serializer(queryset, many=True)
+        
+        return Response({
+            'count': queryset.count(),
+            'no_leidos': queryset.filter(leido=False).count(),
+            'resultados': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'])
+    def marcar_leido(self, request, pk=None):
+        """
+        Marcar un mensaje como leído
+        """
+        contacto = self.get_object()
+        contacto.marcar_como_leido()
+        
+        return Response({
+            'success': True,
+            'message': 'Mensaje marcado como leído'
+        })
+    
+    @action(detail=True, methods=['post'])
+    def marcar_respondido(self, request, pk=None):
+        """
+        Marcar un mensaje como respondido
+        """
+        contacto = self.get_object()
+        contacto.marcar_como_respondido()
+        
+        return Response({
+            'success': True,
+            'message': 'Mensaje marcado como respondido'
+        })
+    
+    @action(detail=False, methods=['get'])
+    def estadisticas(self, request):
+        """
+        Obtener estadísticas de mensajes
+        """
+        total = self.get_queryset().count()
+        no_leidos = self.get_queryset().filter(leido=False).count()
+        no_respondidos = self.get_queryset().filter(respondido=False).count()
+        
+        return Response({
+            'total': total,
+            'no_leidos': no_leidos,
+            'no_respondidos': no_respondidos,
+            'leidos': total - no_leidos,
+            'respondidos': total - no_respondidos
+        })
+    
+    def _enviar_notificacion_admin(self, contacto):
+        """
+        Enviar email de notificación a los administradores
+        """
+        from django.core.mail import send_mail
+        from django.conf import settings
+        
+        # Obtener emails de administradores
+        admin_emails = User.objects.filter(
+            is_staff=True, 
+            is_active=True
+        ).values_list('email', flat=True)
+        
+        if not admin_emails:
+            return
+        
+        subject = f"Nuevo mensaje de contacto: {contacto.asunto}"
+        message = f"""
+        Has recibido un nuevo mensaje de contacto:
+        
+        Nombre: {contacto.nombre}
+        Email: {contacto.email}
+        Asunto: {contacto.asunto}
+        
+        Mensaje:
+        {contacto.mensaje}
+        
+        Fecha: {contacto.fecha_envio.strftime('%d/%m/%Y %H:%M')}
+        
+        Responde directamente a {contacto.email}
+        """
+        
+        send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            list(admin_emails),
+            fail_silently=True,
+        )

@@ -1,12 +1,10 @@
-# ========================================
-# urls.py - CÓDIGO CORREGIDO
-# ========================================
+# urls.py - SIN SISTEMA DE ROLES
 
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include, re_path
 from . import views
 from .views import (
-    RolViewSet,
+    ContactoViewSet,
     TrabajadorViewSet,
     UsuarioViewSet,
     NoticiaViewSet,
@@ -35,9 +33,8 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-# Crear un router y registrar todos los viewsets
+# Crear un router y registrar todos los viewsets (SIN roles)
 router = DefaultRouter()
-router.register(r'roles', RolViewSet, basename='rol')
 router.register(r'users', UserrViewSet, basename='user')
 router.register(r'admin', AdminViewSet, basename='admin')
 router.register(r'trabajadores', TrabajadorViewSet, basename='trabajador')
@@ -49,6 +46,7 @@ router.register(r'noticias', NoticiaViewSet, basename='noticia')
 router.register(r'servicios', ServicioViewSet, basename='servicio')
 router.register(r'subcategorias-servicios', SubcategoriaServicioViewSet, basename='subcategoria-servicio')
 router.register(r'newsletter', NewsletterSubscriberViewSet, basename='newsletter')
+router.register(r'contactos', ContactoViewSet, basename='contacto')
 
 
 urlpatterns = [
@@ -56,7 +54,6 @@ urlpatterns = [
     path('', redirect_to_home, name='redirect_to_home'),
     
     # === RUTAS DEL ROUTER (ViewSets) ===
-    # IMPORTANTE: Esto debe ir ANTES de las rutas manuales
     path('', include(router.urls)),
     
     # === AUTENTICACIÓN ===
@@ -85,7 +82,6 @@ urlpatterns = [
     path('upload/', upload_image, name='upload_image'),
     
     # === NOTICIAS - DETALLE ===
-    # NOTA: Estas rutas específicas deben ir DESPUÉS del router
     re_path(
         r'^noticias/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
         NoticiaViewSet.as_view({'get': 'retrieve'}),
@@ -114,28 +110,3 @@ urlpatterns = [
          NewsletterSubscriberViewSet.as_view({'get': 'confirmar'}), 
          name='newsletter-confirmar'),
 ]
-
-# ========================================
-# NOTAS IMPORTANTES:
-# ========================================
-# 
-# El router automáticamente crea estas URLs:
-# 
-# SERVICIOS:
-# - GET /servicios/ -> list (todos los servicios activos)
-# - POST /servicios/ -> create
-# - GET /servicios/{id}/ -> retrieve
-# - PUT /servicios/{id}/ -> update
-# - PATCH /servicios/{id}/ -> partial_update
-# - DELETE /servicios/{id}/ -> destroy
-# - GET /servicios/activos/ -> @action activos
-# - GET /servicios/consultoria-estrategica/ -> @action consultoria_estrategica
-# - GET /servicios/capacitaciones-especializadas/ -> @action capacitaciones_especializadas
-# - POST /servicios/{id}/toggle-activo/ -> @action toggle_activo
-#
-# NOTICIAS:
-# - GET /noticias/ -> list
-# - GET /noticias/recientes/ -> @action (si lo tienes definido)
-# - GET /noticias/destacadas/ -> @action (si lo tienes definido)
-#
-# ========================================

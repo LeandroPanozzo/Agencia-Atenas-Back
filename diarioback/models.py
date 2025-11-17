@@ -17,18 +17,6 @@ def validate_positive(value):
         raise ValidationError('El valor debe ser positivo.')
 
 
-class Rol(models.Model):
-    nombre_rol = models.CharField(max_length=50)
-    puede_publicar = models.BooleanField(default=False)
-    puede_editar = models.BooleanField(default=False)
-    puede_eliminar = models.BooleanField(default=False)
-    puede_asignar_roles = models.BooleanField(default=False)
-    puede_dejar_comentarios = models.BooleanField(default=False)
-
-    def __str__(self):
-        return self.nombre_rol
-
-
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile', null=True, blank=True)
     nombre = models.CharField(max_length=255)
@@ -48,7 +36,7 @@ class Trabajador(models.Model):
     foto_perfil = models.URLField(blank=True, null=True)
     foto_perfil_local = models.ImageField(upload_to='perfil/', blank=True, null=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    rol = models.ForeignKey('Rol', on_delete=models.CASCADE, related_name='trabajadores', null=False)
+    # ELIMINADO: rol = models.ForeignKey('Rol', ...)
 
     @property
     def descripcion_usuario(self):
@@ -294,9 +282,6 @@ class Noticia(models.Model):
         return image_urls
 
 
-# En tu archivo models.py
-# Reemplaza la clase EstadoPublicacion completa con esta versión mejorada
-
 class EstadoPublicacion(models.Model):
     """
     Estados fijos para las publicaciones.
@@ -318,13 +303,11 @@ class EstadoPublicacion(models.Model):
         (LISTO_PARA_EDITAR, 'Listo para editar'),
     ]
     
-    # IDs fijos predefinidos
     ID_BORRADOR = 1
     ID_EN_PAPELERA = 2
     ID_PUBLICADO = 3
     ID_LISTO_PARA_EDITAR = 4
     
-    # Mapeo de IDs a nombres de estado
     ESTADO_MAP = {
         1: BORRADOR,
         2: EN_PAPELERA,
@@ -343,10 +326,6 @@ class EstadoPublicacion(models.Model):
     
     @classmethod
     def obtener_o_crear_estado(cls, estado_id):
-        """
-        Obtiene o crea un estado por su ID.
-        Si el ID no es válido, retorna Borrador.
-        """
         if estado_id not in cls.ESTADO_MAP:
             estado_id = cls.ID_BORRADOR
         
@@ -436,8 +415,6 @@ class PasswordResetToken(models.Model):
             
         return token
 
-# Agregar este modelo ANTES del modelo Servicio
-# Reemplaza la clase SubcategoriaServicio en models.py con esta versión mejorada
 
 class SubcategoriaServicio(models.Model):
     """
@@ -454,11 +431,9 @@ class SubcategoriaServicio(models.Model):
         (CAPACITACIONES_ESPECIALIZADAS, 'Capacitaciones Especializadas'),
     ]
     
-    # IDs fijos predefinidos
     ID_CONSULTORIA = 1
     ID_CAPACITACIONES = 2
     
-    # Mapeo de IDs a nombres de subcategoría
     SUBCATEGORIA_MAP = {
         ID_CONSULTORIA: CONSULTORIA_ESTRATEGICA,
         ID_CAPACITACIONES: CAPACITACIONES_ESPECIALIZADAS,
@@ -480,10 +455,6 @@ class SubcategoriaServicio(models.Model):
     
     @classmethod
     def obtener_o_crear_subcategoria(cls, subcategoria_id):
-        """
-        Obtiene o crea una subcategoría por su ID.
-        Si el ID no es válido, retorna Consultoría Estratégica por defecto.
-        """
         if subcategoria_id not in cls.SUBCATEGORIA_MAP:
             subcategoria_id = cls.ID_CONSULTORIA
         
@@ -499,22 +470,17 @@ class SubcategoriaServicio(models.Model):
     
     @classmethod
     def get_consultoria_estrategica(cls):
-        """Obtiene o crea la subcategoría Consultoría Estratégica"""
         return cls.obtener_o_crear_subcategoria(cls.ID_CONSULTORIA)
     
     @classmethod
     def get_capacitaciones_especializadas(cls):
-        """Obtiene o crea la subcategoría Capacitaciones Especializadas"""
         return cls.obtener_o_crear_subcategoria(cls.ID_CAPACITACIONES)
     
     @classmethod
     def crear_subcategorias_base(cls):
-        """
-        Crea todas las subcategorías base si no existen.
-        Este método se llama automáticamente al iniciar la aplicación.
-        """
         for subcategoria_id, nombre in cls.SUBCATEGORIA_MAP.items():
             cls.obtener_o_crear_subcategoria(subcategoria_id)
+
 
 class Servicio(models.Model):
     titulo = models.CharField(max_length=200)
@@ -543,11 +509,9 @@ class Servicio(models.Model):
         ordering = ['-fecha_creacion']
 
     def save(self, *args, **kwargs):
-        # ✅ NUEVO: Asignar subcategoría por defecto usando el método mejorado
         if not self.subcategoria_id:
             self.subcategoria = SubcategoriaServicio.get_consultoria_estrategica()
         
-        # Generar slug automáticamente
         if not self.slug or self.pk:
             self.slug = slugify(self.titulo)
             original_slug = self.slug
@@ -558,7 +522,6 @@ class Servicio(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Procesar imagen local a ImgBB
         if self.imagen_local and hasattr(self.imagen_local, 'file'):
             imgbb_url = upload_to_imgbb(self.imagen_local)
             if imgbb_url:
@@ -572,6 +535,7 @@ class Servicio(models.Model):
     def __str__(self):
         return self.titulo
     
+
 class NewsletterSubscriber(models.Model):
     email = models.EmailField(unique=True)
     nombre = models.CharField(max_length=100, blank=True, null=True)
@@ -593,17 +557,14 @@ class NewsletterSubscriber(models.Model):
             import secrets
             self.token_confirmacion = secrets.token_urlsafe(32)
         super().save(*args, **kwargs)
-        
-        
+
+
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 from django.apps import apps
 
 @receiver(post_migrate)
 def crear_subcategorias_base(sender, **kwargs):
-    """
-    Señal que se ejecuta después de las migraciones para crear subcategorías base.
-    """
     if sender.name == 'tu_app':  # Reemplaza 'tu_app' con el nombre de tu aplicación
         try:
             SubcategoriaServicio = apps.get_model('tu_app', 'SubcategoriaServicio')
@@ -611,3 +572,33 @@ def crear_subcategorias_base(sender, **kwargs):
             print("🎯 Subcategorías base creadas/verificadas automáticamente")
         except Exception as e:
             print(f"⚠️ Error al crear subcategorías base: {e}")
+
+class Contacto(models.Model):
+    """
+    Modelo para almacenar mensajes de contacto del formulario
+    """
+    nombre = models.CharField(max_length=200)
+    email = models.EmailField()
+    asunto = models.CharField(max_length=300)
+    mensaje = models.TextField()
+    fecha_envio = models.DateTimeField(auto_now_add=True)
+    leido = models.BooleanField(default=False)
+    respondido = models.BooleanField(default=False)
+    
+    class Meta:
+        verbose_name = 'Mensaje de Contacto'
+        verbose_name_plural = 'Mensajes de Contacto'
+        ordering = ['-fecha_envio']  # Los más recientes primero
+    
+    def __str__(self):
+        return f"{self.nombre} - {self.asunto} ({self.fecha_envio.strftime('%d/%m/%Y')})"
+    
+    def marcar_como_leido(self):
+        """Marca el mensaje como leído"""
+        self.leido = True
+        self.save()
+    
+    def marcar_como_respondido(self):
+        """Marca el mensaje como respondido"""
+        self.respondido = True
+        self.save()

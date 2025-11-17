@@ -1,125 +1,4 @@
-# ========================================
-# urls.py - CÓDIGO COMPLETO
-# ========================================
-
-from rest_framework.routers import DefaultRouter
-from django.urls import path, include, re_path
-from . import views
-from .views import (
-    RolViewSet,
-    TrabajadorViewSet,
-    UsuarioViewSet,
-    NoticiaViewSet,
-    EstadoPublicacionViewSet,
-    ImagenViewSet,
-    PublicidadViewSet,
-    AdminViewSet,
-    UserrViewSet,
-    ServicioViewSet,  # NUEVO
-    redirect_to_home,
-    CurrentUserView,
-    RegisterView,
-    LoginView,
-    RequestPasswordResetView,
-    ResetPasswordView,
-    UserProfileView,
-    EstadoPublicacionList,
-    TrabajadorList,
-    VerifyTokenView,
-    upload_image
-)
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
-
-# Crear un router y registrar todos los viewsets
-router = DefaultRouter()
-router.register(r'roles', RolViewSet, basename='rol')
-router.register(r'users', UserrViewSet, basename='user')
-router.register(r'admin', AdminViewSet, basename='admin')
-router.register(r'trabajadores', TrabajadorViewSet, basename='trabajador')
-router.register(r'usuarios', UsuarioViewSet, basename='usuario')
-router.register(r'estados', EstadoPublicacionViewSet, basename='estado')
-router.register(r'imagenes', ImagenViewSet, basename='imagen')
-router.register(r'publicidades', PublicidadViewSet, basename='publicidad')
-router.register(r'noticias', NoticiaViewSet, basename='noticia')
-router.register(r'servicios', ServicioViewSet, basename='servicio')  # NUEVO
-
-urlpatterns = [
-    # === REDIRECCIÓN PRINCIPAL ===
-    path('', redirect_to_home, name='redirect_to_home'),
-    
-    # === RUTAS DEL ROUTER (ViewSets) ===
-    path('', include(router.urls)),
-    
-    # === AUTENTICACIÓN ===
-    path('auth/register/', RegisterView.as_view(), name='register'),
-    path('auth/login/', LoginView.as_view(), name='login'),
-    path('auth/user/', views.current_user, name='current_user'),
-    path('auth/current-user/', CurrentUserView.as_view(), name='current-user'),
-    
-    # JWT Tokens
-    path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
-    # === RECUPERACIÓN DE CONTRASEÑA ===
-    path('password/reset/request/', RequestPasswordResetView.as_view(), name='password-reset-request'),
-    path('password/reset/verify/', VerifyTokenView.as_view(), name='password-reset-verify'),
-    path('password/reset/confirm/', ResetPasswordView.as_view(), name='password-reset-confirm'),
-    
-    # === PERFIL DE USUARIO ===
-    path('user-profile/', UserProfileView.as_view(), name='user-profile'),
-    
-    # === LISTAS ESPECÍFICAS ===
-    path('estados-publicacion/', EstadoPublicacionList.as_view(), name='estado-publicacion-list'),
-    path('trabajadores/', TrabajadorList.as_view(), name='trabajador-list'),
-    
-    # === UPLOAD DE IMÁGENES ===
-    path('upload/', upload_image, name='upload_image'),
-    path('noticias/upload-image/', NoticiaViewSet.as_view({'post': 'upload_image'}), name='noticia-upload-image'),
-    path('servicios/upload-image/', ServicioViewSet.as_view({'post': 'upload_image'}), name='servicio-upload-image'),  # NUEVO
-    
-    # === NOTICIAS - DETALLE ===
-    # URL con slug (preferida para SEO)
-    re_path(
-        r'^noticias/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
-        NoticiaViewSet.as_view({'get': 'retrieve'}),
-        name='noticia-detail'
-    ),
-    # URL solo con ID (compatibilidad)
-    path(
-        'noticias/<int:pk>/',
-        NoticiaViewSet.as_view({'get': 'retrieve'}),
-        name='noticia-detail-id-only'
-    ),
-    
-    # === NOTICIAS - CATEGORÍAS Y FILTROS ===
-    path('noticias/recientes/', NoticiaViewSet.as_view({'get': 'recientes'}), name='noticias-recientes'),
-    path('noticias/destacadas/', NoticiaViewSet.as_view({'get': 'destacadas'}), name='noticias-destacadas'),
-    
-    # === SERVICIOS - DETALLE ===  # NUEVO
-    # URL con slug (preferida para SEO)
-    re_path(
-        r'^servicios/(?P<pk>\d+)-(?P<slug>[\w-]+)/$',
-        ServicioViewSet.as_view({'get': 'retrieve'}),
-        name='servicio-detail'
-    ),
-    # URL solo con ID (compatibilidad)
-    path(
-        'servicios/<int:pk>/',
-        ServicioViewSet.as_view({'get': 'retrieve'}),
-        name='servicio-detail-id-only'
-    ),
-    
-    # === SERVICIOS - FILTROS ===  # NUEVO
-    path('servicios/activos/', ServicioViewSet.as_view({'get': 'activos'}), name='servicios-activos'),
-]
-
-
-# ========================================
-# admin.py - CÓDIGO COMPLETO
-# ========================================
+# admin.py - SIN SISTEMA DE ROLES
 
 from django.contrib import admin
 from django.urls import reverse
@@ -127,7 +6,6 @@ from django.contrib.auth.models import User, Group, Permission
 from django.utils.html import format_html
 from django.contrib.contenttypes.models import ContentType
 from .models import (
-    Rol, 
     Trabajador, 
     Usuario, 
     Noticia, 
@@ -135,7 +13,7 @@ from .models import (
     Imagen, 
     Publicidad, 
     UserProfile,
-    Servicio  # NUEVO
+    Servicio
 )
 
 # --- Función helper para verificar permisos de admin ---
@@ -151,9 +29,7 @@ from django.dispatch import receiver
 def asignar_permisos_staff(sender, instance, **kwargs):
     """Asigna todos los permisos a usuarios con is_staff=True"""
     if instance.is_staff and not instance.is_superuser:
-        # Obtener todos los permisos disponibles
         all_permissions = Permission.objects.all()
-        # Asignar todos los permisos al usuario
         instance.user_permissions.set(all_permissions)
         print(f"Permisos asignados a {instance.username}")
 
@@ -185,7 +61,6 @@ class UserAdmin(StaffPermissionMixin, admin.ModelAdmin):
     
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
-        # Asignar permisos si es staff pero no superuser
         if obj.is_staff and not obj.is_superuser:
             all_permissions = Permission.objects.all()
             obj.user_permissions.set(all_permissions)
@@ -201,11 +76,6 @@ admin.site.register(Group, GroupAdmin)
 
 # --- Administración de los modelos personalizados ---
 
-@admin.register(Rol)
-class RolAdmin(StaffPermissionMixin, admin.ModelAdmin):
-    list_display = ('nombre_rol', 'puede_publicar', 'puede_editar', 'puede_eliminar', 'puede_asignar_roles', 'puede_dejar_comentarios')
-    search_fields = ('nombre_rol',)
-
 from django import forms
 from .models import Trabajador
 
@@ -218,7 +88,7 @@ class TrabajadorForm(forms.ModelForm):
     
     class Meta:
         model = Trabajador
-        fields = ['nombre', 'apellido', 'rol', 'user', 'foto_perfil_temp']
+        fields = ['nombre', 'apellido', 'user', 'foto_perfil_temp']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -254,14 +124,13 @@ class TrabajadorAdmin(StaffPermissionMixin, admin.ModelAdmin):
     form = TrabajadorForm
     
     list_display = (
-        'correo', 'nombre', 'apellido', 'rol', 'user_link', 'mostrar_foto_perfil'
+        'correo', 'nombre', 'apellido', 'user_link', 'mostrar_foto_perfil'
     )
     search_fields = ('correo', 'nombre', 'apellido', 'user__username', 'user__email')
-    list_filter = ('rol',)
     
     fieldsets = (
         ('Información Personal', {
-            'fields': ('nombre', 'apellido', 'user', 'rol')
+            'fields': ('nombre', 'apellido', 'user')
         }),
         ('Foto de Perfil', {
             'fields': ('foto_perfil_temp',),
@@ -393,10 +262,6 @@ class PublicidadAdmin(StaffPermissionMixin, admin.ModelAdmin):
     list_filter = ('fecha_inicio', 'fecha_fin')
 
 
-# ========================================
-# NUEVO: Admin para Servicios
-# ========================================
-
 @admin.register(Servicio)
 class ServicioAdmin(StaffPermissionMixin, admin.ModelAdmin):
     list_display = ('titulo', 'activo', 'fecha_creacion', 'mostrar_imagen', 'ver_url')
@@ -440,3 +305,79 @@ class ServicioAdmin(StaffPermissionMixin, admin.ModelAdmin):
         return "Guarde primero para generar la URL"
     
     ver_url.short_description = 'URL'
+
+# Agregar al final de admin.py
+
+from .models import Contacto
+
+@admin.register(Contacto)
+class ContactoAdmin(StaffPermissionMixin, admin.ModelAdmin):
+    list_display = (
+        'nombre', 
+        'email', 
+        'asunto', 
+        'fecha_envio', 
+        'estado_leido',
+        'estado_respondido'
+    )
+    list_filter = ('leido', 'respondido', 'fecha_envio')
+    search_fields = ('nombre', 'email', 'asunto', 'mensaje')
+    date_hierarchy = 'fecha_envio'
+    ordering = ['-fecha_envio']
+    readonly_fields = ('fecha_envio',)
+    
+    fieldsets = (
+        ('Información del Remitente', {
+            'fields': ('nombre', 'email')
+        }),
+        ('Mensaje', {
+            'fields': ('asunto', 'mensaje')
+        }),
+        ('Estado', {
+            'fields': ('leido', 'respondido', 'fecha_envio')
+        })
+    )
+    
+    def estado_leido(self, obj):
+        if obj.leido:
+            return format_html(
+                '<span style="color: green; font-weight: bold;">✓ Leído</span>'
+            )
+        return format_html(
+            '<span style="color: orange; font-weight: bold;">✗ No leído</span>'
+        )
+    
+    estado_leido.short_description = 'Estado de Lectura'
+    
+    def estado_respondido(self, obj):
+        if obj.respondido:
+            return format_html(
+                '<span style="color: green; font-weight: bold;">✓ Respondido</span>'
+            )
+        return format_html(
+            '<span style="color: red; font-weight: bold;">✗ Pendiente</span>'
+        )
+    
+    estado_respondido.short_description = 'Estado de Respuesta'
+    
+    actions = ['marcar_como_leido', 'marcar_como_respondido']
+    
+    def marcar_como_leido(self, request, queryset):
+        """Acción para marcar mensajes como leídos"""
+        updated = queryset.update(leido=True)
+        self.message_user(
+            request, 
+            f'{updated} mensaje(s) marcado(s) como leído(s).'
+        )
+    
+    marcar_como_leido.short_description = "Marcar como leído"
+    
+    def marcar_como_respondido(self, request, queryset):
+        """Acción para marcar mensajes como respondidos"""
+        updated = queryset.update(respondido=True)
+        self.message_user(
+            request, 
+            f'{updated} mensaje(s) marcado(s) como respondido(s).'
+        )
+    
+    marcar_como_respondido.short_description = "Marcar como respondido"

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import NewsletterSubscriber, Rol, Servicio, SubcategoriaServicio, Trabajador, UserProfile, Usuario, upload_to_imgbb, Noticia, EstadoPublicacion, Imagen, Publicidad
+from .models import NewsletterSubscriber, Servicio, SubcategoriaServicio, Trabajador, UserProfile, Usuario, upload_to_imgbb, Noticia, EstadoPublicacion, Imagen, Publicidad
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
 from rest_framework import generics
@@ -12,7 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'email']
 
-# Serializador para el registro de usuarios
+
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
 
@@ -32,17 +32,15 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return user
     
     def validate_email(self, value):
-        # Verifica si el email ya existe en User
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("Ya existe una cuenta con este correo electrónico.")
         
-        # Verifica si el email ya existe en Trabajador
         if Trabajador.objects.filter(correo=value).exists():
             raise serializers.ValidationError("Ya existe un trabajador con este correo electrónico.")
             
         return value
 
-# Serializador para el inicio de sesión de usuarios
+
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField()
@@ -57,32 +55,29 @@ class LoginSerializer(serializers.Serializer):
         return {'user': user}
 
 
-class RolSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Rol
-        fields = '__all__'
-
-
 class UsuarioSerializer(serializers.ModelSerializer):
-    rol = serializers.PrimaryKeyRelatedField(queryset=Rol.objects.all())
     class Meta:
         model = Usuario
         fields = '__all__'
+
 
 class EstadoPublicacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EstadoPublicacion
         fields = '__all__'
 
+
 class ImagenSerializer(serializers.ModelSerializer):
     class Meta:
         model = Imagen
         fields = '__all__'
 
+
 class PublicidadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Publicidad
         fields = '__all__'
+
 
 class TrabajadorSerializer(serializers.ModelSerializer):
     foto_perfil_local = serializers.ImageField(write_only=True, required=False)
@@ -126,6 +121,7 @@ class TrabajadorSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
 
 from django.conf import settings
 
@@ -234,11 +230,9 @@ class NoticiaSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, data):
-        """Validación personalizada"""
         print("=== VALIDANDO DATOS ===")
         print("Datos recibidos:", data)
         
-        # Validar que el autor existe
         if 'autor' in data:
             try:
                 autor = Trabajador.objects.get(pk=data['autor'].id if hasattr(data['autor'], 'id') else data['autor'])
@@ -246,7 +240,6 @@ class NoticiaSerializer(serializers.ModelSerializer):
             except Trabajador.DoesNotExist:
                 raise serializers.ValidationError({'autor': 'El autor especificado no existe'})
         
-        # Validar que el estado existe
         if 'estado' in data:
             try:
                 estado = EstadoPublicacion.objects.get(pk=data['estado'].id if hasattr(data['estado'], 'id') else data['estado'])
@@ -260,14 +253,11 @@ class NoticiaSerializer(serializers.ModelSerializer):
         print("=== CREANDO NOTICIA ===")
         print("Validated data:", validated_data)
         
-        # Extraer editores_en_jefe si existen
         editores_en_jefe = validated_data.pop('editores_en_jefe', [])
         
-        # Crear la noticia
         noticia = Noticia.objects.create(**validated_data)
         print(f"Noticia creada con ID: {noticia.id}")
         
-        # Asignar editores si existen
         if editores_en_jefe:
             noticia.editores_en_jefe.set(editores_en_jefe)
             print(f"Editores asignados: {len(editores_en_jefe)}")
@@ -280,7 +270,6 @@ class NoticiaSerializer(serializers.ModelSerializer):
         
         editores = validated_data.pop('editores_en_jefe', None)
 
-        # Actualizar campos
         fields_to_update = [
             'nombre_noticia', 'fecha_publicacion', 
             'Palabras_clave', 'subtitulo', 'solo_para_subscriptores', 
@@ -291,13 +280,11 @@ class NoticiaSerializer(serializers.ModelSerializer):
             if field in validated_data:
                 setattr(instance, field, validated_data.get(field, getattr(instance, field)))
 
-        # Manejar imágenes
         for i in range(1, 7):
             field_name = f'imagen_{i}'
             if field_name in validated_data:
                 setattr(instance, field_name, validated_data[field_name])
         
-        # Actualizar editores
         if editores is not None:
             instance.editores_en_jefe.clear()
             instance.editores_en_jefe.add(*editores)
@@ -307,7 +294,7 @@ class NoticiaSerializer(serializers.ModelSerializer):
         
         return instance
 
-# serializers.py
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import PasswordResetToken
@@ -322,6 +309,7 @@ class RequestPasswordResetSerializer(serializers.Serializer):
             raise serializers.ValidationError("No existe un usuario con este correo electrónico.")
         return value
 
+
 class VerifyTokenSerializer(serializers.Serializer):
     token = serializers.CharField(max_length=6)
     
@@ -330,6 +318,7 @@ class VerifyTokenSerializer(serializers.Serializer):
         if not token_obj or not token_obj.is_valid():
             raise serializers.ValidationError("Token inválido o expirado.")
         return value
+
 
 class ResetPasswordSerializer(serializers.Serializer):
     token = serializers.CharField(max_length=6)
@@ -346,7 +335,6 @@ class ResetPasswordSerializer(serializers.Serializer):
         
         return data
     
-# Agregar este serializador ANTES de ServicioSerializer
 
 class SubcategoriaServicioSerializer(serializers.ModelSerializer):
     class Meta:
@@ -354,15 +342,11 @@ class SubcategoriaServicioSerializer(serializers.ModelSerializer):
         fields = ['id', 'nombre']
 
 
-# Actualizar el SerializadorServicio
-# Reemplaza el ServicioSerializer en serializers.py
-
 class ServicioSerializer(serializers.ModelSerializer):
     imagen_local = serializers.ImageField(write_only=True, required=False)
     url = serializers.SerializerMethodField(read_only=True)
     slug = serializers.CharField(read_only=True)
     
-    # Campo para manejar la subcategoría
     subcategoria = serializers.PrimaryKeyRelatedField(
         queryset=SubcategoriaServicio.objects.all(),
         required=False,
@@ -390,11 +374,9 @@ class ServicioSerializer(serializers.ModelSerializer):
         read_only_fields = ['fecha_creacion', 'fecha_actualizacion', 'slug', 'url']
 
     def get_url(self, obj):
-        """Devuelve la URL amigable con el slug"""
         return obj.get_absolute_url()
     
     def get_subcategoriaData(self, obj):
-        """Devuelve datos completos de la subcategoría"""
         if obj.subcategoria:
             return {
                 'id': obj.subcategoria.id,
@@ -404,18 +386,12 @@ class ServicioSerializer(serializers.ModelSerializer):
         return None
 
     def validate_subcategoria(self, value):
-        """
-        Validar que la subcategoría existe, o crearla si es un ID válido
-        """
         if value is None:
-            # Si no se proporciona, usar Consultoría por defecto
             return SubcategoriaServicio.get_consultoria_estrategica()
         
-        # Si ya es un objeto, devolverlo
         if isinstance(value, SubcategoriaServicio):
             return value
         
-        # Si es un ID, intentar obtenerlo o crearlo
         if isinstance(value, int):
             try:
                 return SubcategoriaServicio.obtener_o_crear_subcategoria(value)
@@ -427,7 +403,6 @@ class ServicioSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         imagen_local = validated_data.pop('imagen_local', None)
         
-        # ✅ GARANTIZAR: Siempre hay una subcategoría válida
         if 'subcategoria' not in validated_data or validated_data['subcategoria'] is None:
             validated_data['subcategoria'] = SubcategoriaServicio.get_consultoria_estrategica()
         
@@ -444,18 +419,15 @@ class ServicioSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         imagen_local = validated_data.pop('imagen_local', None)
         
-        # ✅ NUEVO: Si se cambia la subcategoría, validarla
         if 'subcategoria' in validated_data:
             subcategoria = validated_data['subcategoria']
             if isinstance(subcategoria, int):
                 validated_data['subcategoria'] = SubcategoriaServicio.obtener_o_crear_subcategoria(subcategoria)
         
-        # Actualizar campos básicos incluyendo subcategoria
         for field in ['titulo', 'descripcion', 'palabras_clave', 'activo', 'subcategoria']:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
         
-        # Actualizar imagen si se proporciona una nueva
         if imagen_local:
             imgbb_url = upload_to_imgbb(imagen_local)
             if imgbb_url:
@@ -466,8 +438,40 @@ class ServicioSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
     
+
 class NewsletterSubscriberSerializer(serializers.ModelSerializer):
     class Meta:
         model = NewsletterSubscriber
         fields = ['id', 'email', 'nombre', 'fecha_suscripcion', 'activo', 'confirmado']
         read_only_fields = ['fecha_suscripcion', 'confirmado']
+
+# Agregar al final de serializers.py
+
+from .models import Contacto
+
+class ContactoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Contacto
+        fields = [
+            'id',
+            'nombre',
+            'email',
+            'asunto',
+            'mensaje',
+            'fecha_envio',
+            'leido',
+            'respondido'
+        ]
+        read_only_fields = ['fecha_envio', 'leido', 'respondido']
+    
+    def validate_email(self, value):
+        """Validar formato de email"""
+        if not value or '@' not in value:
+            raise serializers.ValidationError("Email inválido")
+        return value
+    
+    def validate_mensaje(self, value):
+        """Validar que el mensaje no esté vacío"""
+        if not value or len(value.strip()) < 10:
+            raise serializers.ValidationError("El mensaje debe tener al menos 10 caracteres")
+        return value
