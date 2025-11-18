@@ -842,8 +842,14 @@ class ServicioViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
     
     def list(self, request, *args, **kwargs):
-        """Override list para retornar solo servicios activos por defecto"""
-        queryset = self.queryset.filter(activo=True)
+        """Override list para controlar qué servicios se muestran"""
+        # Si el usuario está autenticado y es staff, mostrar todos
+        if request.user.is_authenticated and request.user.is_staff:
+            queryset = self.queryset
+        else:
+            # Para usuarios no autenticados, solo servicios activos
+            queryset = self.queryset.filter(activo=True)
+        
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
