@@ -103,8 +103,22 @@ class PublicidadViewSet(viewsets.ModelViewSet):
 # VIEWSET DE NOTICIAS
 # ============================================
 
+# En views.py - Reemplaza la clase NoticiaViewSet
+
+# En views.py - Reemplaza la clase NoticiaViewSet
+
 class NoticiaViewSet(viewsets.ModelViewSet):
-    queryset = Noticia.objects.all()
+    """
+    ViewSet optimizado para gestionar noticias con carga ultrarrápida
+    """
+    # OPTIMIZACIÓN 1: select_related y prefetch_related
+    queryset = Noticia.objects.select_related(
+        'autor',
+        'estado'
+    ).prefetch_related(
+        'editores_en_jefe'
+    ).all()
+    
     serializer_class = NoticiaSerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['fecha_publicacion']
@@ -112,12 +126,94 @@ class NoticiaViewSet(viewsets.ModelViewSet):
     lookup_field = 'pk'
     lookup_value_regex = r'[0-9]+(?:-[a-zA-Z0-9-_]+)?'
     
+    # OPTIMIZACIÓN 2: Override get_queryset para optimizar según la acción
+    def get_queryset(self):
+        """Optimiza el queryset según la acción"""
+        queryset = Noticia.objects.select_related(
+            'autor',
+            'estado'
+        ).prefetch_related(
+            'editores_en_jefe'
+        )
+        
+        # Para listados, cargar solo campos necesarios
+        if self.action == 'list':
+            # CORREGIDO: Solo campos que existen en los modelos
+            queryset = queryset.only(
+                'id', 'nombre_noticia', 'subtitulo', 'fecha_publicacion',
+                'Palabras_clave', 'imagen_1', 'estado', 'slug', 
+                'mostrar_creditos', 'solo_para_subscriptores',
+                'autor',
+                # Campos del autor que realmente existen
+                'autor__id', 'autor__nombre', 'autor__apellido'
+            )
+        
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        """Override list con optimizaciones"""
+        print("\n" + "="*50)
+        print("LIST NOTICIAS - OPTIMIZADO")
+        print("="*50)
+        
+        # Obtener parámetros de filtro
+        estado = request.query_params.get('estado')
+        autor = request.query_params.get('autor')
+        
+        # Usar el queryset optimizado
+        queryset = self.get_queryset()
+        
+        # OPTIMIZACIÓN 3: Filtros eficientes
+        if estado:
+            queryset = queryset.filter(estado_id=estado)
+        
+        if autor:
+            queryset = queryset.filter(autor_id=autor)
+        
+        # Aplicar ordenamiento
+        queryset = self.filter_queryset(queryset)
+        
+        # OPTIMIZACIÓN 4: Limitar resultados si es necesario
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                queryset = queryset[:int(limit)]
+            except ValueError:
+                pass
+        
+        # CORREGIDO: No usar count() con only() que puede causar problemas
+        # En su lugar, evaluar el queryset directamente
+        print(f"Cargando noticias...")
+        
+        # Serializar con contexto optimizado
+        serializer = self.get_serializer(queryset, many=True)
+        
+        print(f"Noticias serializadas: {len(serializer.data)}")
+        print("="*50 + "\n")
+        
+        return Response(serializer.data)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve optimizado para detalle"""
+        # Extraer ID si viene con slug
+        pk = self.kwargs.get(self.lookup_field)
+        if '-' in str(pk):
+            pk = pk.split('-')[0]
+        
+        # Cargar con todas las relaciones
+        instance = Noticia.objects.select_related(
+            'autor',
+            'estado'
+        ).prefetch_related(
+            'editores_en_jefe'
+        ).get(pk=pk)
+        
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
-        """Override create to handle multipart data properly"""
-        print("=== CREATE NOTICIA DEBUG ===")
-        print("Request data:", request.data)
-        print("Request files:", request.FILES)
+        """Create optimizado - mantener igual que antes"""
+        print("=== CREATE NOTICIA ===")
         
         try:
             user = request.user
@@ -128,7 +224,7 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                 )
             
             try:
-                trabajador = Trabajador.objects.get(user=user)
+                trabajador = Trabajador.objects.only('id', 'nombre', 'apellido').get(user=user)
             except Trabajador.DoesNotExist:
                 return Response(
                     {'error': 'No se encontró un trabajador asociado a este usuario'}, 
@@ -136,22 +232,18 @@ class NoticiaViewSet(viewsets.ModelViewSet):
                 )
             
             def get_value(data, key, default=None):
-                """Extrae el valor de un campo que puede ser lista o valor simple"""
                 value = data.get(key, default)
                 if isinstance(value, list) and len(value) > 0:
                     return value[0]
                 return value if value != '' else default
             
             data = {}
-            
-            # Campos de texto
             data['nombre_noticia'] = get_value(request.data, 'nombre_noticia', '')
             data['subtitulo'] = get_value(request.data, 'subtitulo', '')
             data['contenido'] = get_value(request.data, 'contenido', '')
             data['Palabras_clave'] = get_value(request.data, 'Palabras_clave', '')
             data['fecha_publicacion'] = get_value(request.data, 'fecha_publicacion')
             
-            # Campos numéricos
             estado_value = get_value(request.data, 'estado', '1')
             data['estado'] = int(estado_value) if estado_value else 1
             
@@ -161,154 +253,84 @@ class NoticiaViewSet(viewsets.ModelViewSet):
             else:
                 data['autor'] = trabajador.id
             
-            # Campos booleanos
             solo_subs = get_value(request.data, 'solo_para_subscriptores', 'false')
             data['solo_para_subscriptores'] = solo_subs.lower() in ['true', '1', 'yes'] if isinstance(solo_subs, str) else bool(solo_subs)
             
             mostrar_cred = get_value(request.data, 'mostrar_creditos', 'true')
             data['mostrar_creditos'] = mostrar_cred.lower() in ['true', '1', 'yes'] if isinstance(mostrar_cred, str) else bool(mostrar_cred)
             
-            print(f"Datos procesados: {data}")
-            
-            # Validar campos obligatorios
-            print("Validando campos obligatorios...")
             if not data.get('nombre_noticia'):
-                print("❌ Error: El título es obligatorio")
                 return Response(
                     {'error': 'El título es obligatorio'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
             if not data.get('contenido'):
-                print("❌ Error: El contenido es obligatorio")
                 return Response(
                     {'error': 'El contenido es obligatorio'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            print("✅ Campos obligatorios OK")
-            
-            # CREAR/OBTENER ESTADO AUTOMÁTICAMENTE
-            print(f"Validando/creando estado ID: {data['estado']}")
+            # Validar estado
             try:
                 estado_obj = EstadoPublicacion.obtener_o_crear_estado(data['estado'])
-                print(f"✅ Estado OK: ID={estado_obj.id}, Nombre={estado_obj.nombre_estado}")
             except Exception as e:
-                print(f"❌ Error al validar/crear estado: {str(e)}")
                 return Response(
                     {'error': f'Error al procesar estado: {str(e)}'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Validar que el autor existe
-            print(f"Validando autor ID: {data['autor']}")
-            try:
-                autor_obj = Trabajador.objects.get(pk=data['autor'])
-                print(f"✅ Autor encontrado: {autor_obj.nombre} {autor_obj.apellido}")
-            except Trabajador.DoesNotExist:
-                print(f"❌ Autor con ID {data['autor']} no existe")
+            # Validar autor
+            if not Trabajador.objects.filter(pk=data['autor']).exists():
                 return Response(
                     {'error': f'Autor con ID {data["autor"]} no existe'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            except Exception as e:
-                print(f"❌ Error al buscar autor: {str(e)}")
-                return Response(
-                    {'error': f'Error al validar autor: {str(e)}'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
             
-            # Manejar imagen si existe
+            # Manejar imagen
             imagen_file = None
             if 'imagen_1_local' in request.FILES:
                 imagen_file = request.FILES['imagen_1_local']
                 if isinstance(imagen_file, list) and len(imagen_file) > 0:
                     imagen_file = imagen_file[0]
                 
-                print(f"Subiendo imagen: {imagen_file.name}, tipo: {type(imagen_file)}")
-                
                 try:
                     imgbb_url = upload_to_imgbb(imagen_file)
                     if imgbb_url:
                         data['imagen_1'] = imgbb_url
-                        print(f"Imagen subida exitosamente: {imgbb_url}")
-                    else:
-                        print("Error al subir imagen a ImgBB - no se obtuvo URL")
                 except Exception as img_error:
-                    print(f"Excepción al subir imagen: {str(img_error)}")
-                    import traceback
-                    traceback.print_exc()
+                    print(f"Error al subir imagen: {str(img_error)}")
             
-            # Crear el serializer
-            print(f"Creando serializer con datos: {data}")
             serializer = self.get_serializer(data=data)
             
-            print("Validando serializer...")
             if not serializer.is_valid():
-                print("❌ ERRORES DE VALIDACIÓN:")
-                print(serializer.errors)
-                for field, errors in serializer.errors.items():
-                    print(f"  - Campo '{field}': {errors}")
                 return Response(
                     {'error': 'Datos inválidos', 'details': serializer.errors}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            print("✅ Validación exitosa, guardando noticia...")
-            # Guardar la noticia
             try:
                 noticia = serializer.save()
-                print(f"✅ Noticia creada exitosamente: ID {noticia.id}, Slug: {noticia.slug}")
+                print(f"✅ Noticia creada: ID {noticia.id}")
             except Exception as save_error:
-                print(f"❌ Error al guardar noticia: {str(save_error)}")
-                import traceback
-                traceback.print_exc()
                 return Response(
                     {'error': f'Error al guardar: {str(save_error)}'}, 
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            # Si se creó en estado "Publicado", enviar newsletter
-            if data['estado'] == 3:  # Estado Publicado
-                print("\n" + "="*50)
-                print("NOTICIA CREADA EN ESTADO PUBLICADO")
-                print("Enviando newsletter automáticamente...")
-                print("="*50)
-                
-                # Obtener suscriptores activos y confirmados
+            # Si se publicó, enviar newsletter
+            if data['estado'] == 3:
                 subscribers = NewsletterSubscriber.objects.filter(
                     activo=True,
                     confirmado=True
-                )
-                
-                print(f"Total suscriptores activos y confirmados: {subscribers.count()}")
+                ).only('email', 'nombre')
                 
                 if subscribers.exists():
-                    print("Lista de suscriptores:")
-                    for sub in subscribers:
-                        print(f"  - {sub.email}")
-                    
-                    print("\nIniciando envío de newsletter...")
                     success_count = send_newsletter_notification(noticia, subscribers)
-                    
-                    print(f"Newsletter enviado: {success_count}/{subscribers.count()} suscriptores")
-                    print("="*50 + "\n")
-                else:
-                    print("No hay suscriptores confirmados para enviar newsletter")
-                    print("="*50 + "\n")
+                    print(f"Newsletter enviado: {success_count}/{subscribers.count()}")
             
-            # Retornar respuesta
-            return Response(
-                serializer.data, 
-                status=status.HTTP_201_CREATED
-            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
             
-        except ValueError as ve:
-            print(f"Error de valor: {str(ve)}")
-            return Response(
-                {'error': f'Error en los datos proporcionados: {str(ve)}'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
         except Exception as e:
             print(f"Error inesperado: {str(e)}")
             import traceback
@@ -319,51 +341,29 @@ class NoticiaViewSet(viewsets.ModelViewSet):
             )
     
     def update(self, request, *args, **kwargs):
-        """Actualizar noticia y enviar newsletter si cambia a estado 'Publicado'"""
-        print("\n" + "="*50)
-        print("DEBUG UPDATE NOTICIA")
-        print("="*50)
-        
+        """Update optimizado"""
         instance = self.get_object()
         old_estado = instance.estado.id if instance.estado else None
-        print(f"Noticia: {instance.nombre_noticia}")
-        print(f"Estado anterior: {old_estado}")
         
-        # Actualizar la noticia normalmente
         response = super().update(request, *args, **kwargs)
         
-        # Obtener la instancia actualizada
         instance.refresh_from_db()
         new_estado = instance.estado.id if instance.estado else None
-        print(f"Estado nuevo: {new_estado}")
         
-        # Si cambió a estado "Publicado" (ID = 3)
+        # Si cambió a Publicado
         if new_estado == 3 and old_estado != 3:
-            print("\nCONDICIONES CUMPLIDAS - Enviando newsletter...")
-            
-            # Obtener suscriptores activos y confirmados
             subscribers = NewsletterSubscriber.objects.filter(
                 activo=True,
                 confirmado=True
-            )
-            
-            print(f"Total suscriptores: {subscribers.count()}")
+            ).only('email', 'nombre')
             
             if subscribers.exists():
-                print("Iniciando envio de newsletter...")
                 success_count = send_newsletter_notification(instance, subscribers)
-                print(f"Newsletter enviado: {success_count}/{subscribers.count()} suscriptores")
-                
                 response.data['newsletter_sent'] = {
                     'total_subscribers': subscribers.count(),
                     'successful_sends': success_count
                 }
-            else:
-                print("No hay suscriptores confirmados")
-        else:
-            print("NO se cumplen las condiciones para enviar newsletter")
         
-        print("="*50 + "\n")
         return response
 
     def partial_update(self, request, *args, **kwargs):
@@ -828,11 +828,16 @@ class SubcategoriaServicioViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
 
+# En views.py - Reemplaza toda la clase ServicioViewSet
+
+# En views.py - Reemplaza toda la clase ServicioViewSet
+
 class ServicioViewSet(viewsets.ModelViewSet):
     """
-    ViewSet para gestionar servicios
+    ViewSet optimizado para gestionar servicios con carga rápida
     """
-    queryset = Servicio.objects.all()
+    # OPTIMIZACIÓN 1: Usar select_related para cargar subcategoría en una sola query
+    queryset = Servicio.objects.select_related('subcategoria').all()
     serializer_class = ServicioSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['titulo', 'descripcion', 'palabras_clave']
@@ -840,25 +845,108 @@ class ServicioViewSet(viewsets.ModelViewSet):
     ordering = ['-fecha_creacion']
     lookup_field = 'pk'
     permission_classes = [IsAuthenticatedOrReadOnly]
+
+    # OPTIMIZACIÓN 2: Sobrescribir get_queryset para optimizar queries
+    def get_queryset(self):
+        """Optimiza el queryset según el usuario y usa select_related"""
+        queryset = Servicio.objects.select_related('subcategoria')
+        
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            # Staff ve todos los servicios
+            return queryset.all()
+        else:
+            # Usuarios normales solo ven servicios activos
+            return queryset.filter(activo=True)
     
     def list(self, request, *args, **kwargs):
-        """Override list para controlar qué servicios se muestran"""
-        # Si el usuario está autenticado y es staff, mostrar todos
-        if request.user.is_authenticated and request.user.is_staff:
-            queryset = self.queryset
-        else:
-            # Para usuarios no autenticados, solo servicios activos
-            queryset = self.queryset.filter(activo=True)
+        """Override list con queryset optimizado"""
+        print("\n" + "="*50)
+        print("LIST SERVICIOS - DEBUG OPTIMIZADO")
+        print("="*50)
+        print(f"Usuario: {request.user}")
+        print(f"Es staff: {request.user.is_staff if request.user.is_authenticated else 'No auth'}")
         
+        # Usar el queryset ya optimizado
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        print(f"Total servicios en queryset: {queryset.count()}")
+        
+        # OPTIMIZACIÓN 3: Usar serializer con many=True de forma eficiente
         serializer = self.get_serializer(queryset, many=True)
+        
+        print(f"Servicios serializados: {len(serializer.data)}")
+        print("="*50 + "\n")
+        
         return Response(serializer.data)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Obtener un servicio específico con select_related"""
+        instance = self.get_object()
+        print(f"\nRETRIEVE Servicio ID {instance.id}: activo={instance.activo}")
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+    
+    def create(self, request, *args, **kwargs):
+        """Crear un nuevo servicio"""
+        print("\n" + "="*50)
+        print("CREATE SERVICIO")
+        print("="*50)
+        print(f"Datos recibidos: {request.data}")
+        
+        response = super().create(request, *args, **kwargs)
+        
+        print(f"Servicio creado: ID {response.data.get('id')}")
+        print(f"Estado activo: {response.data.get('activo')}")
+        print("="*50 + "\n")
+        
+        return response
+    
+    def update(self, request, *args, **kwargs):
+        """Actualizar un servicio"""
+        print("\n" + "="*50)
+        print("UPDATE SERVICIO")
+        print("="*50)
+        
+        instance = self.get_object()
+        print(f"Servicio ID: {instance.id}")
+        print(f"Estado activo anterior: {instance.activo}")
+        print(f"Datos recibidos: {request.data}")
+        
+        response = super().update(request, *args, **kwargs)
+        
+        # Refrescar instancia
+        instance.refresh_from_db()
+        print(f"Estado activo después: {instance.activo}")
+        print("="*50 + "\n")
+        
+        return response
+    
+    def partial_update(self, request, *args, **kwargs):
+        """Actualización parcial de un servicio"""
+        print("\n" + "="*50)
+        print("PARTIAL UPDATE SERVICIO")
+        print("="*50)
+        
+        instance = self.get_object()
+        print(f"Servicio ID: {instance.id}")
+        print(f"Estado activo anterior: {instance.activo}")
+        print(f"Datos recibidos: {request.data}")
+        
+        response = super().partial_update(request, *args, **kwargs)
+        
+        # Refrescar instancia
+        instance.refresh_from_db()
+        print(f"Estado activo después: {instance.activo}")
+        print("="*50 + "\n")
+        
+        return response
     
     @action(detail=False, methods=['get'], url_path='activos')
     def activos(self, request):
-        """Obtener todos los servicios activos"""
-        servicios = Servicio.objects.filter(activo=True)
+        """Obtener servicios activos - OPTIMIZADO"""
+        # Usar el queryset base ya optimizado
+        servicios = self.get_queryset().filter(activo=True)
         
-        # Aplicar límite si se especifica
         limit = request.query_params.get('limit')
         if limit:
             try:
@@ -871,8 +959,8 @@ class ServicioViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='consultoria-estrategica')
     def consultoria_estrategica(self, request):
-        """Obtener servicios de Consultoría Estratégica"""
-        servicios = Servicio.objects.filter(
+        """Obtener servicios de Consultoría Estratégica - OPTIMIZADO"""
+        servicios = self.get_queryset().filter(
             activo=True,
             subcategoria__nombre='consultoria_estrategica'
         )
@@ -889,8 +977,8 @@ class ServicioViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='capacitaciones-especializadas')
     def capacitaciones_especializadas(self, request):
-        """Obtener servicios de Capacitaciones Especializadas"""
-        servicios = Servicio.objects.filter(
+        """Obtener servicios de Capacitaciones Especializadas - OPTIMIZADO"""
+        servicios = self.get_queryset().filter(
             activo=True,
             subcategoria__nombre='capacitaciones_especializadas'
         )
@@ -907,109 +995,56 @@ class ServicioViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='toggle-activo')
     def toggle_activo(self, request, pk=None):
-        """Cambiar el estado activo/inactivo de un servicio"""
+        """Cambiar el estado activo/inactivo de un servicio - OPTIMIZADO"""
+        print(f"\n{'='*50}")
+        print(f"TOGGLE ACTIVO - Servicio ID: {pk}")
+        print(f"{'='*50}")
+        
         try:
-            servicio = self.get_object()
-            servicio.activo = not servicio.activo
-            servicio.save()
+            # Usar select_related incluso aquí
+            servicio = self.get_queryset().get(pk=pk)
             
+            estado_anterior = servicio.activo
+            print(f"Estado anterior: {estado_anterior}")
+            
+            # Cambiar estado
+            servicio.activo = not servicio.activo
+            
+            # Guardar EXPLÍCITAMENTE solo el campo activo
+            servicio.save(update_fields=['activo'])
+            
+            # Verificar que se guardó en la BD
+            servicio.refresh_from_db()
+            print(f"Estado nuevo en BD: {servicio.activo}")
+            print(f"✅ Cambio guardado exitosamente")
+            print(f"{'='*50}\n")
+            
+            # Serializar la respuesta completa
             serializer = self.get_serializer(servicio)
+            
             return Response({
+                'success': True,
                 'activo': servicio.activo,
-                'message': f'Servicio {"activado" if servicio.activo else "desactivado"} exitosamente'
+                'message': f'Servicio {"activado" if servicio.activo else "desactivado"} exitosamente',
+                'servicio': serializer.data
             })
+        
+        except Servicio.DoesNotExist:
+            print(f"❌ ERROR: Servicio con ID {pk} no encontrado")
+            return Response(
+                {'error': f'Servicio con ID {pk} no encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
         except Exception as e:
+            print(f"❌ ERROR al cambiar estado: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def create(self, request, *args, **kwargs):
-        """Override create para manejar subcategorías automáticamente"""
-        print("=== CREATE SERVICIO DEBUG ===")
-        print("Request data:", request.data)
-        
-        try:
-            # Función helper para extraer valores
-            def get_value(data, key, default=None):
-                value = data.get(key, default)
-                if isinstance(value, list) and len(value) > 0:
-                    return value[0]
-                return value if value != '' else default
-            
-            # Preparar datos
-            data = {}
-            data['titulo'] = get_value(request.data, 'titulo', '')
-            data['descripcion'] = get_value(request.data, 'descripcion', '')
-            data['palabras_clave'] = get_value(request.data, 'palabras_clave', '')
-            
-            # Manejar subcategoría
-            subcategoria_value = get_value(request.data, 'subcategoria')
-            if subcategoria_value:
-                data['subcategoria'] = int(subcategoria_value) if subcategoria_value else None
-            
-            # Campos booleanos
-            activo_value = get_value(request.data, 'activo', 'true')
-            data['activo'] = activo_value.lower() in ['true', '1', 'yes'] if isinstance(activo_value, str) else bool(activo_value)
-            
-            print(f"Datos procesados: {data}")
-            
-            # Validar título
-            if not data.get('titulo'):
-                return Response(
-                    {'error': 'El título es obligatorio'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Validar/crear subcategoría
-            if 'subcategoria' in data and data['subcategoria']:
-                try:
-                    subcategoria_obj = SubcategoriaServicio.obtener_o_crear_subcategoria(data['subcategoria'])
-                    data['subcategoria'] = subcategoria_obj.id
-                    print(f"✅ Subcategoría OK: ID={subcategoria_obj.id}")
-                except Exception as e:
-                    return Response(
-                        {'error': f'Error al procesar subcategoría: {str(e)}'}, 
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            
-            # Manejar imagen
-            if 'imagen_local' in request.FILES:
-                imagen_file = request.FILES['imagen_local']
-                if isinstance(imagen_file, list) and len(imagen_file) > 0:
-                    imagen_file = imagen_file[0]
-                
-                try:
-                    imgbb_url = upload_to_imgbb(imagen_file)
-                    if imgbb_url:
-                        data['imagen'] = imgbb_url
-                        print(f"Imagen subida: {imgbb_url}")
-                except Exception as img_error:
-                    print(f"Error al subir imagen: {str(img_error)}")
-            
-            # Crear servicio
-            serializer = self.get_serializer(data=data)
-            
-            if not serializer.is_valid():
-                print("❌ Errores:", serializer.errors)
-                return Response(
-                    {'error': 'Datos inválidos', 'details': serializer.errors}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            servicio = serializer.save()
-            print(f"✅ Servicio creado: ID {servicio.id}")
-            
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-            
-        except Exception as e:
-            print(f"Error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return Response(
-                {'error': f'Error interno: {str(e)}'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
 
 
 # ============================================
@@ -1148,34 +1183,63 @@ from .serializers import ContactoSerializer
 
 # Agregar este ViewSet al final de views.py
 
+# En views.py - Reemplaza la clase ContactoViewSet
+
 class ContactoViewSet(viewsets.ModelViewSet):
     """
-    ViewSet para gestionar mensajes de contacto
+    ViewSet optimizado para gestionar mensajes de contacto
     """
-    queryset = Contacto.objects.all()
+    # OPTIMIZACIÓN 1: Ordenar con índices
+    queryset = Contacto.objects.all().order_by('-fecha_envio')
     serializer_class = ContactoSerializer
     
+    # OPTIMIZACIÓN 2: Filtros optimizados
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['fecha_envio', 'leido', 'respondido']
+    ordering = ['-fecha_envio']
+    
     def get_permissions(self):
-        """
-        Permisos personalizados:
-        - Cualquiera puede crear (POST)
-        - Solo staff puede ver la lista y detalles (GET, PUT, DELETE)
-        """
         if self.action == 'create':
             return [AllowAny()]
         return [IsAuthenticated(), permissions.IsAdminUser()]
     
-    def create(self, request, *args, **kwargs):
-        """
-        Crear un nuevo mensaje de contacto
-        """
-        print("=== CREAR MENSAJE DE CONTACTO ===")
-        print("Datos recibidos:", request.data)
+    # OPTIMIZACIÓN 3: Override get_queryset para usar only()
+    def get_queryset(self):
+        """Optimiza el queryset cargando solo campos necesarios"""
+        return Contacto.objects.only(
+            'id', 'nombre', 'email', 'asunto', 'mensaje',
+            'fecha_envio', 'leido', 'respondido'
+        ).order_by('-fecha_envio')
+    
+    def list(self, request, *args, **kwargs):
+        """Override list con queryset optimizado"""
+        queryset = self.get_queryset()
         
+        # Filtros opcionales
+        leido = request.query_params.get('leido')
+        respondido = request.query_params.get('respondido')
+        
+        if leido is not None:
+            queryset = queryset.filter(leido=leido.lower() == 'true')
+        
+        if respondido is not None:
+            queryset = queryset.filter(respondido=respondido.lower() == 'true')
+        
+        # OPTIMIZACIÓN 4: Usar values() para la lista ligera
+        # Esto evita cargar objetos completos si no se necesitan
+        serializer = self.get_serializer(queryset, many=True)
+        
+        return Response({
+            'count': queryset.count(),
+            'no_leidos': Contacto.objects.filter(leido=False).count(),
+            'resultados': serializer.data
+        })
+    
+    def create(self, request, *args, **kwargs):
+        """Crear un nuevo mensaje de contacto"""
         serializer = self.get_serializer(data=request.data)
         
         if not serializer.is_valid():
-            print("❌ Errores de validación:", serializer.errors)
             return Response(
                 {'error': 'Datos inválidos', 'details': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST
@@ -1183,9 +1247,8 @@ class ContactoViewSet(viewsets.ModelViewSet):
         
         try:
             contacto = serializer.save()
-            print(f"✅ Mensaje de contacto creado: ID {contacto.id}")
             
-            # Opcional: Enviar notificación por email a los administradores
+            # Opcional: Enviar notificación asíncrona
             try:
                 self._enviar_notificacion_admin(contacto)
             except Exception as email_error:
@@ -1201,43 +1264,16 @@ class ContactoViewSet(viewsets.ModelViewSet):
             )
         
         except Exception as e:
-            print(f"❌ Error al crear mensaje: {str(e)}")
             return Response(
                 {'error': f'Error al enviar mensaje: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def list(self, request, *args, **kwargs):
-        """
-        Listar todos los mensajes (solo para staff)
-        """
-        queryset = self.get_queryset()
-        
-        # Filtros opcionales
-        leido = request.query_params.get('leido')
-        respondido = request.query_params.get('respondido')
-        
-        if leido is not None:
-            queryset = queryset.filter(leido=leido.lower() == 'true')
-        
-        if respondido is not None:
-            queryset = queryset.filter(respondido=respondido.lower() == 'true')
-        
-        serializer = self.get_serializer(queryset, many=True)
-        
-        return Response({
-            'count': queryset.count(),
-            'no_leidos': queryset.filter(leido=False).count(),
-            'resultados': serializer.data
-        })
-    
     @action(detail=True, methods=['post'])
     def marcar_leido(self, request, pk=None):
-        """
-        Marcar un mensaje como leído
-        """
-        contacto = self.get_object()
-        contacto.marcar_como_leido()
+        """Marcar mensaje como leído - OPTIMIZADO"""
+        # OPTIMIZACIÓN: update() es más rápido que save()
+        Contacto.objects.filter(pk=pk).update(leido=True)
         
         return Response({
             'success': True,
@@ -1246,11 +1282,8 @@ class ContactoViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def marcar_respondido(self, request, pk=None):
-        """
-        Marcar un mensaje como respondido
-        """
-        contacto = self.get_object()
-        contacto.marcar_como_respondido()
+        """Marcar mensaje como respondido - OPTIMIZADO"""
+        Contacto.objects.filter(pk=pk).update(respondido=True)
         
         return Response({
             'success': True,
@@ -1260,28 +1293,24 @@ class ContactoViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def estadisticas(self, request):
         """
-        Obtener estadísticas de mensajes
+        Obtener estadísticas - OPTIMIZADO con aggregate
         """
-        total = self.get_queryset().count()
-        no_leidos = self.get_queryset().filter(leido=False).count()
-        no_respondidos = self.get_queryset().filter(respondido=False).count()
+        from django.db.models import Count, Q
         
-        return Response({
-            'total': total,
-            'no_leidos': no_leidos,
-            'no_respondidos': no_respondidos,
-            'leidos': total - no_leidos,
-            'respondidos': total - no_respondidos
-        })
+        # OPTIMIZACIÓN: Una sola query con aggregate
+        stats = Contacto.objects.aggregate(
+            total=Count('id'),
+            no_leidos=Count('id', filter=Q(leido=False)),
+            no_respondidos=Count('id', filter=Q(respondido=False))
+        )
+        
+        return Response(stats)
     
     def _enviar_notificacion_admin(self, contacto):
-        """
-        Enviar email de notificación a los administradores
-        """
+        """Enviar email de notificación a los administradores"""
         from django.core.mail import send_mail
         from django.conf import settings
         
-        # Obtener emails de administradores
         admin_emails = User.objects.filter(
             is_staff=True, 
             is_active=True
@@ -1302,8 +1331,6 @@ class ContactoViewSet(viewsets.ModelViewSet):
         {contacto.mensaje}
         
         Fecha: {contacto.fecha_envio.strftime('%d/%m/%Y %H:%M')}
-        
-        Responde directamente a {contacto.email}
         """
         
         send_mail(

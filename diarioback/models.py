@@ -174,16 +174,24 @@ def get_imgbb_image_info(image_url):
 
 from django.utils.text import slugify
 
+# En models.py - Actualiza la clase Noticia
+
 class Noticia(models.Model):
-    autor = models.ForeignKey('Trabajador', on_delete=models.CASCADE, related_name='noticias', null=False)
+    autor = models.ForeignKey(
+        'Trabajador', 
+        on_delete=models.CASCADE, 
+        related_name='noticias', 
+        null=False,
+        db_index=True  # ÍNDICE para filtros rápidos
+    )
     editores_en_jefe = models.ManyToManyField(
         'Trabajador', 
         related_name='noticias_supervisadas',
         blank=True,
         verbose_name="Editores en jefe"
     )
-    nombre_noticia = models.CharField(max_length=500)
-    fecha_publicacion = models.DateField()
+    nombre_noticia = models.CharField(max_length=500, db_index=True)  # ÍNDICE
+    fecha_publicacion = models.DateField(db_index=True)  # ÍNDICE
     url = models.URLField(max_length=200, blank=True, null=True)
     slug = models.SlugField(max_length=300, unique=True, blank=True, editable=False)
     Palabras_clave = models.CharField(max_length=200)
@@ -200,7 +208,12 @@ class Noticia(models.Model):
     imagen_5_local = models.ImageField(upload_to='images/', blank=True, null=True)
     imagen_6 = models.URLField(blank=True, null=True)
     imagen_6_local = models.ImageField(upload_to='images/', blank=True, null=True)
-    estado = models.ForeignKey('EstadoPublicacion', on_delete=models.SET_NULL, null=True)
+    estado = models.ForeignKey(
+        'EstadoPublicacion', 
+        on_delete=models.SET_NULL, 
+        null=True,
+        db_index=True  # ÍNDICE para filtros rápidos
+    )
     solo_para_subscriptores = models.BooleanField(default=False)
     contenido = models.TextField(default='default content')
     subtitulo = models.TextField(default='default content')
@@ -209,10 +222,30 @@ class Noticia(models.Model):
         help_text="Si está marcado, se mostrarán los datos del autor y editores de la noticia"
     )
 
+    class Meta:
+        ordering = ['-fecha_publicacion']
+        verbose_name = 'Noticia'
+        verbose_name_plural = 'Noticias'
+        
+        # OPTIMIZACIÓN: Índices compuestos para consultas comunes
+        indexes = [
+            # Índice para filtros de estado + fecha (consulta más común)
+            models.Index(fields=['estado', '-fecha_publicacion'], name='noticia_estado_fecha_idx'),
+            # Índice para filtros de autor + fecha
+            models.Index(fields=['autor', '-fecha_publicacion'], name='noticia_autor_fecha_idx'),
+            # Índice para búsquedas por título
+            models.Index(fields=['nombre_noticia'], name='noticia_titulo_idx'),
+            # Índice compuesto para estado publicado + fecha
+            models.Index(fields=['estado', '-fecha_publicacion', 'mostrar_creditos'], name='noticia_pub_idx'),
+        ]
+
     def save(self, *args, **kwargs):
-        if self.pk:
+        # OPTIMIZACIÓN: Evitar consultas innecesarias
+        is_new = self._state.adding
+        
+        if not is_new:
             try:
-                old_instance = Noticia.objects.get(pk=self.pk)
+                old_instance = Noticia.objects.only('nombre_noticia', 'slug').get(pk=self.pk)
                 if old_instance.nombre_noticia != self.nombre_noticia:
                     self.slug = slugify(self.nombre_noticia)
                     original_slug = self.slug
@@ -232,12 +265,16 @@ class Noticia(models.Model):
 
         super().save(*args, **kwargs)
         
-        images_updated = self._process_images(old_instance if 'old_instance' in locals() else None)
-        
-        if images_updated:
-            super().save()
+        # Procesar imágenes después de guardar
+        if is_new or any(getattr(self, f'imagen_{i}_local') for i in range(1, 7)):
+            images_updated = self._process_images()
+            if images_updated:
+                # OPTIMIZACIÓN: Guardar solo campos de imagen
+                update_fields = [f'imagen_{i}' for i in range(1, 7)] + [f'imagen_{i}_local' for i in range(1, 7)]
+                super().save(update_fields=update_fields)
     
-    def _process_images(self, old_instance=None):
+    def _process_images(self):
+        """Procesar imágenes de forma optimizada"""
         images_updated = False
         
         for i in range(1, 7):
@@ -251,21 +288,8 @@ class Noticia(models.Model):
                     setattr(self, url_field_name, imgbb_url)
                     setattr(self, local_field_name, None)
                     images_updated = True
-                    print(f"Imagen {i} subida a ImgBB: {imgbb_url}")
-                else:
-                    print(f"Error al subir imagen {i} a ImgBB")
         
         return images_updated
-    
-    def _delete_old_images(self, old_instance):
-        fields_to_check = [f'imagen_{i}' for i in range(1, 7)]
-        
-        for field_name in fields_to_check:
-            old_url = getattr(old_instance, field_name)
-            new_url = getattr(self, field_name)
-            
-            if old_url and old_url != new_url and 'ibb.co' in old_url:
-                print(f"Nota: No se puede eliminar automáticamente la imagen anterior de ImgBB: {old_url}")
 
     def __str__(self):
         return f'{self.nombre_noticia} - {self.estado}'
@@ -274,12 +298,8 @@ class Noticia(models.Model):
         return f'/noticias/{self.pk}-{self.slug}/'
 
     def get_image_urls(self):
-        image_urls = []
-        for i in range(1, 7):
-            image_field = getattr(self, f'imagen_{i}')
-            if image_field:
-                image_urls.append(image_field)
-        return image_urls
+        """Método optimizado para obtener URLs de imágenes"""
+        return [getattr(self, f'imagen_{i}') for i in range(1, 7) if getattr(self, f'imagen_{i}')]
 
 
 class EstadoPublicacion(models.Model):
@@ -495,20 +515,35 @@ class Servicio(models.Model):
         null=True,
         blank=True,
         related_name='servicios',
-        verbose_name='Subcategoría'
+        verbose_name='Subcategoría',
+        # OPTIMIZACIÓN: db_index para queries más rápidas
+        db_index=True
     )
     
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
-    activo = models.BooleanField(default=True)
+    
+    # OPTIMIZACIÓN: db_index en campo activo para filtros rápidos
+    activo = models.BooleanField(default=True, db_index=True)
     slug = models.SlugField(max_length=250, unique=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = 'Servicio'
         verbose_name_plural = 'Servicios'
         ordering = ['-fecha_creacion']
+        
+        # OPTIMIZACIÓN: Índices compuestos para consultas comunes
+        indexes = [
+            # Índice para filtros de activo + subcategoría (consulta más común)
+            models.Index(fields=['activo', 'subcategoria'], name='servicio_activo_sub_idx'),
+            # Índice para ordenamiento por fecha
+            models.Index(fields=['-fecha_creacion'], name='servicio_fecha_idx'),
+            # Índice para búsquedas por slug
+            models.Index(fields=['slug'], name='servicio_slug_idx'),
+        ]
 
     def save(self, *args, **kwargs):
+        """Save optimizado"""
         if not self.subcategoria_id:
             self.subcategoria = SubcategoriaServicio.get_consultoria_estrategica()
         
@@ -522,11 +557,13 @@ class Servicio(models.Model):
 
         super().save(*args, **kwargs)
 
+        # OPTIMIZACIÓN: Procesar imagen solo si es necesario
         if self.imagen_local and hasattr(self.imagen_local, 'file'):
             imgbb_url = upload_to_imgbb(self.imagen_local)
             if imgbb_url:
                 self.imagen = imgbb_url
                 self.imagen_local = None
+                # Guardar solo campos específicos
                 super().save(update_fields=['imagen', 'imagen_local'])
 
     def get_absolute_url(self):
@@ -573,32 +610,45 @@ def crear_subcategorias_base(sender, **kwargs):
         except Exception as e:
             print(f"⚠️ Error al crear subcategorías base: {e}")
 
+# En models.py - Actualiza la clase Contacto
+
 class Contacto(models.Model):
     """
-    Modelo para almacenar mensajes de contacto del formulario
+    Modelo optimizado para mensajes de contacto
     """
     nombre = models.CharField(max_length=200)
     email = models.EmailField()
     asunto = models.CharField(max_length=300)
     mensaje = models.TextField()
-    fecha_envio = models.DateTimeField(auto_now_add=True)
-    leido = models.BooleanField(default=False)
-    respondido = models.BooleanField(default=False)
+    fecha_envio = models.DateTimeField(auto_now_add=True, db_index=True)  # ÍNDICE
+    leido = models.BooleanField(default=False, db_index=True)  # ÍNDICE
+    respondido = models.BooleanField(default=False, db_index=True)  # ÍNDICE
     
     class Meta:
         verbose_name = 'Mensaje de Contacto'
         verbose_name_plural = 'Mensajes de Contacto'
-        ordering = ['-fecha_envio']  # Los más recientes primero
+        ordering = ['-fecha_envio']
+        
+        # OPTIMIZACIÓN: Índices compuestos para consultas comunes
+        indexes = [
+            # Índice para filtros de leído + fecha
+            models.Index(fields=['leido', '-fecha_envio'], name='contacto_leido_fecha_idx'),
+            # Índice para filtros de respondido + fecha
+            models.Index(fields=['respondido', '-fecha_envio'], name='contacto_resp_fecha_idx'),
+            # Índice compuesto para filtros combinados
+            models.Index(fields=['leido', 'respondido', '-fecha_envio'], name='contacto_estado_idx'),
+        ]
     
     def __str__(self):
         return f"{self.nombre} - {self.asunto} ({self.fecha_envio.strftime('%d/%m/%Y')})"
     
     def marcar_como_leido(self):
-        """Marca el mensaje como leído"""
+        """Marca el mensaje como leído - OPTIMIZADO"""
+        # Usar update es más rápido
+        Contacto.objects.filter(pk=self.pk).update(leido=True)
         self.leido = True
-        self.save()
     
     def marcar_como_respondido(self):
-        """Marca el mensaje como respondido"""
+        """Marca el mensaje como respondido - OPTIMIZADO"""
+        Contacto.objects.filter(pk=self.pk).update(respondido=True)
         self.respondido = True
-        self.save()

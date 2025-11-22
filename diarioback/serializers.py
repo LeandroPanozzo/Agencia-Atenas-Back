@@ -162,6 +162,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+# En serializers.py - Actualiza NoticiaSerializer
+
 class NoticiaSerializer(serializers.ModelSerializer):
     autor = serializers.PrimaryKeyRelatedField(queryset=Trabajador.objects.all())
     editores_en_jefe = serializers.PrimaryKeyRelatedField(
@@ -199,6 +201,7 @@ class NoticiaSerializer(serializers.ModelSerializer):
         return obj.get_absolute_url()
 
     def get_autorData(self, obj):
+        """CORREGIDO: Sin referencias a campo 'cargo' que no existe"""
         if not obj.mostrar_creditos:
             return None
         
@@ -206,68 +209,56 @@ class NoticiaSerializer(serializers.ModelSerializer):
             include_autor = self.context.get('request').query_params.get('include_autor')
             if include_autor and include_autor.lower() == 'true':
                 if obj.autor:
+                    # Solo campos que existen en Trabajador
                     return {
                         'id': obj.autor.id,
                         'nombre': obj.autor.nombre,
                         'apellido': obj.autor.apellido,
-                        'cargo': getattr(obj.autor, 'cargo', None),
                     }
         return None
         
     def get_editoresData(self, obj):
+        """CORREGIDO: Sin referencias a campo 'cargo' que no existe"""
         if not obj.mostrar_creditos:
             return None
         
         if hasattr(self.context.get('request'), 'query_params'):
             include_editor = self.context.get('request').query_params.get('include_editor')
             if include_editor and include_editor.lower() == 'true':
+                # Los editores ya están precargados con prefetch_related
                 return [{
                     'id': editor.id,
                     'nombre': editor.nombre,
                     'apellido': editor.apellido,
-                    'cargo': getattr(editor, 'cargo', None),
                 } for editor in obj.editores_en_jefe.all()]
         return None
 
     def validate(self, data):
-        print("=== VALIDANDO DATOS ===")
-        print("Datos recibidos:", data)
-        
         if 'autor' in data:
             try:
                 autor = Trabajador.objects.get(pk=data['autor'].id if hasattr(data['autor'], 'id') else data['autor'])
-                print(f"Autor válido: {autor.nombre} {autor.apellido}")
             except Trabajador.DoesNotExist:
                 raise serializers.ValidationError({'autor': 'El autor especificado no existe'})
         
         if 'estado' in data:
             try:
                 estado = EstadoPublicacion.objects.get(pk=data['estado'].id if hasattr(data['estado'], 'id') else data['estado'])
-                print(f"Estado válido: {estado.nombre_estado}")
             except EstadoPublicacion.DoesNotExist:
                 raise serializers.ValidationError({'estado': 'El estado especificado no existe'})
         
         return data
 
     def create(self, validated_data):
-        print("=== CREANDO NOTICIA ===")
-        print("Validated data:", validated_data)
-        
         editores_en_jefe = validated_data.pop('editores_en_jefe', [])
         
         noticia = Noticia.objects.create(**validated_data)
-        print(f"Noticia creada con ID: {noticia.id}")
         
         if editores_en_jefe:
             noticia.editores_en_jefe.set(editores_en_jefe)
-            print(f"Editores asignados: {len(editores_en_jefe)}")
         
         return noticia
 
     def update(self, instance, validated_data):
-        print("=== ACTUALIZANDO NOTICIA ===")
-        print("Validated data:", validated_data)
-        
         editores = validated_data.pop('editores_en_jefe', None)
 
         fields_to_update = [
@@ -290,7 +281,6 @@ class NoticiaSerializer(serializers.ModelSerializer):
             instance.editores_en_jefe.add(*editores)
         
         instance.save()
-        print(f"Noticia actualizada: ID {instance.id}")
         
         return instance
 
@@ -347,12 +337,18 @@ class ServicioSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField(read_only=True)
     slug = serializers.CharField(read_only=True)
     
+    # OPTIMIZACIÓN 1: Usar PrimaryKeyRelatedField en lugar de consultas adicionales
     subcategoria = serializers.PrimaryKeyRelatedField(
         queryset=SubcategoriaServicio.objects.all(),
         required=False,
         allow_null=True
     )
+    
+    # OPTIMIZACIÓN 2: SerializerMethodField optimizado
+    # Se accede a subcategoria que ya está cargada con select_related
     subcategoriaData = serializers.SerializerMethodField(read_only=True)
+    
+    activo = serializers.BooleanField(default=True)
     
     class Meta:
         model = Servicio
@@ -374,10 +370,16 @@ class ServicioSerializer(serializers.ModelSerializer):
         read_only_fields = ['fecha_creacion', 'fecha_actualizacion', 'slug', 'url']
 
     def get_url(self, obj):
+        """Método simple sin queries adicionales"""
         return obj.get_absolute_url()
     
     def get_subcategoriaData(self, obj):
+        """
+        OPTIMIZADO: Accede a obj.subcategoria que ya está cargada
+        con select_related en el ViewSet, no hace queries adicionales
+        """
         if obj.subcategoria:
+            # No necesitamos hacer query aquí, ya está precargada
             return {
                 'id': obj.subcategoria.id,
                 'nombre': obj.subcategoria.nombre,
@@ -386,6 +388,7 @@ class ServicioSerializer(serializers.ModelSerializer):
         return None
 
     def validate_subcategoria(self, value):
+        """Validación optimizada"""
         if value is None:
             return SubcategoriaServicio.get_consultoria_estrategica()
         
@@ -399,8 +402,20 @@ class ServicioSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Error al procesar subcategoría: {str(e)}")
         
         return value
+    
+    def to_internal_value(self, data):
+        """Manejar conversión de 'activo' desde string a booleano"""
+        if 'activo' in data:
+            activo_value = data.get('activo')
+            if isinstance(activo_value, str):
+                if hasattr(data, '_mutable'):
+                    data._mutable = True
+                data['activo'] = activo_value.lower() in ['true', '1', 'yes']
+        
+        return super().to_internal_value(data)
 
     def create(self, validated_data):
+        """Create optimizado"""
         imagen_local = validated_data.pop('imagen_local', None)
         
         if 'subcategoria' not in validated_data or validated_data['subcategoria'] is None:
@@ -412,11 +427,13 @@ class ServicioSerializer(serializers.ModelSerializer):
             imgbb_url = upload_to_imgbb(imagen_local)
             if imgbb_url:
                 servicio.imagen = imgbb_url
-                servicio.save()
+                # OPTIMIZACIÓN: Guardar solo el campo imagen
+                servicio.save(update_fields=['imagen'])
         
         return servicio
 
     def update(self, instance, validated_data):
+        """Update optimizado con update_fields"""
         imagen_local = validated_data.pop('imagen_local', None)
         
         if 'subcategoria' in validated_data:
@@ -424,20 +441,30 @@ class ServicioSerializer(serializers.ModelSerializer):
             if isinstance(subcategoria, int):
                 validated_data['subcategoria'] = SubcategoriaServicio.obtener_o_crear_subcategoria(subcategoria)
         
+        # Lista de campos a actualizar
+        fields_to_update = []
+        
+        # Actualizar campos normales
         for field in ['titulo', 'descripcion', 'palabras_clave', 'activo', 'subcategoria']:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
+                fields_to_update.append(field)
         
+        # Manejar imagen
         if imagen_local:
             imgbb_url = upload_to_imgbb(imagen_local)
             if imgbb_url:
                 instance.imagen = imgbb_url
+                fields_to_update.append('imagen')
         elif 'imagen' in validated_data:
             instance.imagen = validated_data['imagen']
+            fields_to_update.append('imagen')
         
-        instance.save()
+        # OPTIMIZACIÓN: Guardar solo los campos modificados
+        if fields_to_update:
+            instance.save(update_fields=fields_to_update)
+        
         return instance
-    
 
 class NewsletterSubscriberSerializer(serializers.ModelSerializer):
     class Meta:
@@ -448,6 +475,8 @@ class NewsletterSubscriberSerializer(serializers.ModelSerializer):
 # Agregar al final de serializers.py
 
 from .models import Contacto
+
+# En serializers.py - Actualiza ContactoSerializer
 
 class ContactoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -463,6 +492,13 @@ class ContactoSerializer(serializers.ModelSerializer):
             'respondido'
         ]
         read_only_fields = ['fecha_envio', 'leido', 'respondido']
+        
+        # OPTIMIZACIÓN: Especificar campos extra para mejorar rendimiento
+        extra_kwargs = {
+            'mensaje': {'trim_whitespace': True},
+            'asunto': {'trim_whitespace': True},
+            'nombre': {'trim_whitespace': True},
+        }
     
     def validate_email(self, value):
         """Validar formato de email"""
