@@ -164,3 +164,82 @@ def send_newsletter_notification(noticia, subscribers):
         print(f"   📧 Emails fallidos: {', '.join(failed_emails)}")
     
     return success_count
+
+def send_custom_newsletter(asunto, contenido, subscribers, incluir_imagen=False, imagen_url=None):
+    """
+    Envía un correo personalizado a los suscriptores usando Mailjet
+    
+    Args:
+        asunto: Asunto del email
+        contenido: Contenido del mensaje (texto)
+        subscribers: QuerySet de NewsletterSubscriber
+        incluir_imagen: Boolean para incluir imagen
+        imagen_url: URL de la imagen (opcional)
+    
+    Returns:
+        int: Número de emails enviados exitosamente
+    """
+    # Preparar el contenido HTML del email
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+    </head>
+    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+            {f'<img src="{imagen_url}" style="width: 100%; height: auto; max-height: 400px; object-fit: cover;" alt="Imagen del correo">' if incluir_imagen and imagen_url else ''}
+            
+            <div style="padding: 30px;">
+                <h1 style="color: #333; margin-bottom: 20px; font-size: 24px;">{asunto}</h1>
+                
+                <div style="color: #666; font-size: 16px; line-height: 1.6; white-space: pre-wrap;">
+                    {contenido}
+                </div>
+                
+                <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;">
+                
+                <p style="color: #999; font-size: 12px; text-align: center; line-height: 1.5;">
+                    Recibiste este email porque estás suscrito a nuestro newsletter.
+                    <br><br>
+                    <a href="http://localhost:5173/newsletter/cancelar" style="color: #007bff; text-decoration: none;">
+                        Cancelar suscripción
+                    </a>
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    success_count = 0
+    failed_emails = []
+    
+    # Enviar a cada suscriptor
+    for subscriber in subscribers:
+        try:
+            if send_mailjet_email(
+                to_email=subscriber.email,
+                subject=asunto,
+                html_content=html_content
+            ):
+                success_count += 1
+                print(f"✅ Correo personalizado enviado a: {subscriber.email}")
+            else:
+                failed_emails.append(subscriber.email)
+                print(f"❌ Error al enviar a: {subscriber.email}")
+        except Exception as e:
+            failed_emails.append(subscriber.email)
+            print(f"❌ Excepción al enviar a {subscriber.email}: {str(e)}")
+    
+    # Resumen final
+    total = subscribers.count()
+    print(f"\n📊 RESUMEN DE ENVÍO DE CORREO PERSONALIZADO:")
+    print(f"   Total suscriptores: {total}")
+    print(f"   ✅ Exitosos: {success_count}")
+    print(f"   ❌ Fallidos: {len(failed_emails)}")
+    
+    if failed_emails:
+        print(f"   📧 Emails fallidos: {', '.join(failed_emails)}")
+    
+    return success_count

@@ -44,7 +44,7 @@ router.register(r'imagenes', ImagenViewSet, basename='imagen')
 router.register(r'publicidades', PublicidadViewSet, basename='publicidad')
 router.register(r'noticias', NoticiaViewSet, basename='noticia')
 router.register(r'servicios', ServicioViewSet, basename='servicio')
-router.register(r'subcategorias-servicios', SubcategoriaServicioViewSet, basename='subcategoria-servicio')
+router.register(r'categorias-servicios', SubcategoriaServicioViewSet, basename='categoria-servicio')
 router.register(r'newsletter', NewsletterSubscriberViewSet, basename='newsletter')
 router.register(r'contactos', ContactoViewSet, basename='contacto')
 
@@ -52,6 +52,15 @@ router.register(r'contactos', ContactoViewSet, basename='contacto')
 urlpatterns = [
     # === REDIRECCIÓN PRINCIPAL ===
     path('', redirect_to_home, name='redirect_to_home'),
+    
+    # === NEWSLETTER - ACCIONES ESPECIALES (ANTES DEL ROUTER) ===
+    path('newsletter/enviar-correo-personalizado/',
+         NewsletterSubscriberViewSet.as_view({'post': 'enviar_correo_personalizado'}),
+         name='newsletter-enviar-correo-personalizado'),
+    
+    path('newsletter/confirmar/<str:token>/', 
+         NewsletterSubscriberViewSet.as_view({'get': 'confirmar'}), 
+         name='newsletter-confirmar'),
     
     # === RUTAS DEL ROUTER (ViewSets) ===
     path('', include(router.urls)),
@@ -109,4 +118,52 @@ urlpatterns = [
     path('newsletter/confirmar/<str:token>/', 
          NewsletterSubscriberViewSet.as_view({'get': 'confirmar'}), 
          name='newsletter-confirmar'),
+    
+    # === SERVICIOS - CATEGORÍAS ESPECÍFICAS ===
+    # Rutas directas para categorías específicas
+    path('servicios/categoria/estrategias-impacto/',
+         ServicioViewSet.as_view({'get': 'estrategias_impacto'}),
+         name='servicios-estrategias-impacto'),
+    
+    path('servicios/categoria/asuntos-corporativos/',
+         ServicioViewSet.as_view({'get': 'asuntos_corporativos'}),
+         name='servicios-asuntos-corporativos'),
+    
+    path('servicios/categoria/comunicacion-estrategica/',
+         ServicioViewSet.as_view({'get': 'comunicacion_estrategica'}),
+         name='servicios-comunicacion-estrategica'),
+    
+    path('servicios/categoria/analisis-datos/',
+         ServicioViewSet.as_view({'get': 'analisis_datos'}),
+         name='servicios-analisis-datos'),
+    
+    path('servicios/categoria/informes-tecnicos/',
+         ServicioViewSet.as_view({'get': 'informes_tecnicos'}),
+         name='servicios-informes-tecnicos'),
+    
+    # === SERVICIOS - ACCIONES ESPECIALES ===
+    path('servicios/categoria/todos-agrupados/',
+         ServicioViewSet.as_view({'get': 'servicios_por_categoria'}),
+         name='servicios-por-categoria'),
+    
+    path('servicios/estadisticas/resumen/',
+         ServicioViewSet.as_view({'get': 'resumen_estadisticas'}),
+         name='servicios-resumen-estadisticas'),
+    
+    path('servicios/<int:pk>/toggle-activo/',
+         ServicioViewSet.as_view({'post': 'toggle_activo'}),
+         name='servicio-toggle-activo'),
+    
+    # === CONTACTOS - ACCIONES ESPECIALES ===
+    path('contactos/<int:pk>/marcar-leido/',
+         ContactoViewSet.as_view({'post': 'marcar_leido'}),
+         name='contacto-marcar-leido'),
+    
+    path('contactos/<int:pk>/marcar-respondido/',
+         ContactoViewSet.as_view({'post': 'marcar_respondido'}),
+         name='contacto-marcar-respondido'),
+    
+    path('contactos/estadisticas/',
+         ContactoViewSet.as_view({'get': 'estadisticas'}),
+         name='contacto-estadisticas'),
 ]

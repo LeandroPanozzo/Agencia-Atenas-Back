@@ -329,7 +329,7 @@ class ResetPasswordSerializer(serializers.Serializer):
 class SubcategoriaServicioSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubcategoriaServicio
-        fields = ['id', 'nombre']
+        fields = ['id', 'nombre', 'descripcion', 'icono']
 
 
 class ServicioSerializer(serializers.ModelSerializer):

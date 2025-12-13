@@ -436,39 +436,59 @@ class PasswordResetToken(models.Model):
         return token
 
 
+# En models.py - Actualiza la clase SubcategoriaServicio
+
 class SubcategoriaServicio(models.Model):
     """
     Subcategorías fijas para los servicios.
-    IDs fijos:
-    1 = Consultoría Estratégica
-    2 = Capacitaciones Especializadas
+    IDs fijos actualizados con los 5 nuevos servicios:
+    1 = Estrategias y reportes de impacto
+    2 = Asuntos corporativos y vinculación institucional
+    3 = Comunicación estratégica y reputación
+    4 = Análisis y datos
+    5 = Informes técnicos y posicionamiento temático
     """
-    CONSULTORIA_ESTRATEGICA = 'consultoria_estrategica'
-    CAPACITACIONES_ESPECIALIZADAS = 'capacitaciones_especializadas'
+    ESTRATEGIAS_IMPACTO = 'estrategias_impacto'
+    ASUNTOS_CORPORATIVOS = 'asuntos_corporativos'
+    COMUNICACION_ESTRATEGICA = 'comunicacion_estrategica'
+    ANALISIS_DATOS = 'analisis_datos'
+    INFORMES_TECNICOS = 'informes_tecnicos'
     
     SUBCATEGORIA_CHOICES = [
-        (CONSULTORIA_ESTRATEGICA, 'Consultoría Estratégica'),
-        (CAPACITACIONES_ESPECIALIZADAS, 'Capacitaciones Especializadas'),
+        (ESTRATEGIAS_IMPACTO, 'Estrategias y reportes de impacto'),
+        (ASUNTOS_CORPORATIVOS, 'Asuntos corporativos y vinculación institucional'),
+        (COMUNICACION_ESTRATEGICA, 'Comunicación estratégica y reputación'),
+        (ANALISIS_DATOS, 'Análisis y datos'),
+        (INFORMES_TECNICOS, 'Informes técnicos y posicionamiento temático'),
     ]
     
-    ID_CONSULTORIA = 1
-    ID_CAPACITACIONES = 2
+    ID_ESTRATEGIAS = 1
+    ID_ASUNTOS = 2
+    ID_COMUNICACION = 3
+    ID_ANALISIS = 4
+    ID_INFORMES = 5
     
     SUBCATEGORIA_MAP = {
-        ID_CONSULTORIA: CONSULTORIA_ESTRATEGICA,
-        ID_CAPACITACIONES: CAPACITACIONES_ESPECIALIZADAS,
+        ID_ESTRATEGIAS: ESTRATEGIAS_IMPACTO,
+        ID_ASUNTOS: ASUNTOS_CORPORATIVOS,
+        ID_COMUNICACION: COMUNICACION_ESTRATEGICA,
+        ID_ANALISIS: ANALISIS_DATOS,
+        ID_INFORMES: INFORMES_TECNICOS,
     }
 
     nombre = models.CharField(
         max_length=50,
         choices=SUBCATEGORIA_CHOICES,
         unique=True,
-        default=CONSULTORIA_ESTRATEGICA
+        default=ESTRATEGIAS_IMPACTO
     )
     
+    descripcion = models.TextField(blank=True, null=True, help_text="Descripción detallada del servicio")
+    icono = models.CharField(max_length=50, blank=True, null=True, help_text="Nombre del ícono (ej: fa-chart-line)")
+    
     class Meta:
-        verbose_name = 'Subcategoría de Servicio'
-        verbose_name_plural = 'Subcategorías de Servicios'
+        verbose_name = 'Categoría de Servicio'
+        verbose_name_plural = 'Categorías de Servicios'
     
     def __str__(self):
         return self.get_nombre_display()
@@ -476,7 +496,7 @@ class SubcategoriaServicio(models.Model):
     @classmethod
     def obtener_o_crear_subcategoria(cls, subcategoria_id):
         if subcategoria_id not in cls.SUBCATEGORIA_MAP:
-            subcategoria_id = cls.ID_CONSULTORIA
+            subcategoria_id = cls.ID_ESTRATEGIAS
         
         subcategoria_obj, created = cls.objects.get_or_create(
             id=subcategoria_id,
@@ -484,23 +504,74 @@ class SubcategoriaServicio(models.Model):
         )
         
         if created:
-            print(f"✅ Subcategoría {subcategoria_id} creada automáticamente: {subcategoria_obj.nombre}")
+            print(f"✅ Categoría {subcategoria_id} creada automáticamente: {subcategoria_obj.nombre}")
         
         return subcategoria_obj
     
     @classmethod
-    def get_consultoria_estrategica(cls):
-        return cls.obtener_o_crear_subcategoria(cls.ID_CONSULTORIA)
+    def get_estrategias_impacto(cls):
+        return cls.obtener_o_crear_subcategoria(cls.ID_ESTRATEGIAS)
     
     @classmethod
-    def get_capacitaciones_especializadas(cls):
-        return cls.obtener_o_crear_subcategoria(cls.ID_CAPACITACIONES)
+    def get_asuntos_corporativos(cls):
+        return cls.obtener_o_crear_subcategoria(cls.ID_ASUNTOS)
+    
+    @classmethod
+    def get_comunicacion_estrategica(cls):
+        return cls.obtener_o_crear_subcategoria(cls.ID_COMUNICACION)
+    
+    @classmethod
+    def get_analisis_datos(cls):
+        return cls.obtener_o_crear_subcategoria(cls.ID_ANALISIS)
+    
+    @classmethod
+    def get_informes_tecnicos(cls):
+        return cls.obtener_o_crear_subcategoria(cls.ID_INFORMES)
     
     @classmethod
     def crear_subcategorias_base(cls):
+        """Crear todas las categorías base al migrar"""
+        descripciones = {
+            cls.ID_ESTRATEGIAS: "Planificación estratégica de comunicación e impacto social, ambiental y corporativo. Elaboración de informes, memorias de sostenibilidad y libros blancos con enfoque narrativo y visual.",
+            cls.ID_ASUNTOS: "Estrategias de relacionamiento y posicionamiento institucional frente al sector público, la sociedad civil y los grupos de interés.",
+            cls.ID_COMUNICACION: "Comunicación estratégica y manejo de reputación: construcción, fortalecimiento y gestión de una imagen positiva ante la opinión pública.",
+            cls.ID_ANALISIS: "Estudios de mercado, análisis sectorial y benchmark comunicacional. Diseño de indicadores de comunicación e impacto.",
+            cls.ID_INFORMES: "Elaboración de informes técnicos y estudios aplicados sobre temáticas de interés público, regulatorio o sectorial."
+        }
+        
+        iconos = {
+            cls.ID_ESTRATEGIAS: "fa-chart-line",
+            cls.ID_ASUNTOS: "fa-handshake",
+            cls.ID_COMUNICACION: "fa-bullhorn",
+            cls.ID_ANALISIS: "fa-chart-bar",
+            cls.ID_INFORMES: "fa-file-alt"
+        }
+        
         for subcategoria_id, nombre in cls.SUBCATEGORIA_MAP.items():
-            cls.obtener_o_crear_subcategoria(subcategoria_id)
-
+            subcategoria_obj, created = cls.objects.get_or_create(
+                id=subcategoria_id,
+                defaults={
+                    'nombre': nombre,
+                    'descripcion': descripciones.get(subcategoria_id, ''),
+                    'icono': iconos.get(subcategoria_id, '')
+                }
+            )
+            
+            if created:
+                print(f"✅ Categoría {subcategoria_id} creada: {subcategoria_obj.nombre}")
+            else:
+                # Actualizar descripción e icono si ya existían
+                update_fields = []
+                if not subcategoria_obj.descripcion and descripciones.get(subcategoria_id):
+                    subcategoria_obj.descripcion = descripciones[subcategoria_id]
+                    update_fields.append('descripcion')
+                if not subcategoria_obj.icono and iconos.get(subcategoria_id):
+                    subcategoria_obj.icono = iconos[subcategoria_id]
+                    update_fields.append('icono')
+                
+                if update_fields:
+                    subcategoria_obj.save(update_fields=update_fields)
+                    print(f"🔄 Categoría {subcategoria_id} actualizada: {subcategoria_obj.nombre}")
 
 class Servicio(models.Model):
     titulo = models.CharField(max_length=200)
@@ -600,15 +671,17 @@ from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 from django.apps import apps
 
+# En models.py - Actualiza la señal post_migrate
+
 @receiver(post_migrate)
 def crear_subcategorias_base(sender, **kwargs):
-    if sender.name == 'tu_app':  # Reemplaza 'tu_app' con el nombre de tu aplicación
+    if sender.name == 'diarioback':  # Reemplaza 'tu_app' con el nombre de tu aplicación
         try:
             SubcategoriaServicio = apps.get_model('tu_app', 'SubcategoriaServicio')
             SubcategoriaServicio.crear_subcategorias_base()
-            print("🎯 Subcategorías base creadas/verificadas automáticamente")
+            print("🎯 Categorías de servicios creadas/verificadas automáticamente")
         except Exception as e:
-            print(f"⚠️ Error al crear subcategorías base: {e}")
+            print(f"⚠️ Error al crear categorías base: {e}")
 
 # En models.py - Actualiza la clase Contacto
 

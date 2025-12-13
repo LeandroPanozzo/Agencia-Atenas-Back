@@ -8,7 +8,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticate
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework import generics
 from rest_framework_simplejwt.tokens import RefreshToken
-
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework import permissions
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.models import User
 from django.shortcuts import redirect, get_object_or_404
@@ -55,6 +56,12 @@ from .serializers import (
     VerifyTokenSerializer,
     ResetPasswordSerializer,
     NewsletterSubscriberSerializer
+)
+# Al inicio de views.py o donde hagas los imports
+from .newsletter_utils import (
+    send_confirmation_email,
+    send_newsletter_notification,
+    send_custom_newsletter
 )
 
 from .newsletter_utils import send_newsletter_notification, send_confirmation_email
@@ -832,6 +839,10 @@ class SubcategoriaServicioViewSet(viewsets.ReadOnlyModelViewSet):
 
 # En views.py - Reemplaza toda la clase ServicioViewSet
 
+# En views.py - Reemplaza toda la clase ServicioViewSet
+
+# En views.py - Reemplaza toda la clase ServicioViewSet
+
 class ServicioViewSet(viewsets.ModelViewSet):
     """
     ViewSet optimizado para gestionar servicios con carga rápida
@@ -957,12 +968,12 @@ class ServicioViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['get'], url_path='consultoria-estrategica')
-    def consultoria_estrategica(self, request):
-        """Obtener servicios de Consultoría Estratégica - OPTIMIZADO"""
+    @action(detail=False, methods=['get'], url_path='estrategias-impacto')
+    def estrategias_impacto(self, request):
+        """Obtener servicios de Estrategias y reportes de impacto - OPTIMIZADO"""
         servicios = self.get_queryset().filter(
             activo=True,
-            subcategoria__nombre='consultoria_estrategica'
+            subcategoria__nombre='estrategias_impacto'
         )
         
         limit = request.query_params.get('limit')
@@ -975,12 +986,66 @@ class ServicioViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['get'], url_path='capacitaciones-especializadas')
-    def capacitaciones_especializadas(self, request):
-        """Obtener servicios de Capacitaciones Especializadas - OPTIMIZADO"""
+    @action(detail=False, methods=['get'], url_path='asuntos-corporativos')
+    def asuntos_corporativos(self, request):
+        """Obtener servicios de Asuntos corporativos y vinculación institucional - OPTIMIZADO"""
         servicios = self.get_queryset().filter(
             activo=True,
-            subcategoria__nombre='capacitaciones_especializadas'
+            subcategoria__nombre='asuntos_corporativos'
+        )
+        
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                servicios = servicios[:int(limit)]
+            except ValueError:
+                pass
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='comunicacion-estrategica')
+    def comunicacion_estrategica(self, request):
+        """Obtener servicios de Comunicación estratégica y reputación - OPTIMIZADO"""
+        servicios = self.get_queryset().filter(
+            activo=True,
+            subcategoria__nombre='comunicacion_estrategica'
+        )
+        
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                servicios = servicios[:int(limit)]
+            except ValueError:
+                pass
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='analisis-datos')
+    def analisis_datos(self, request):
+        """Obtener servicios de Análisis y datos - OPTIMIZADO"""
+        servicios = self.get_queryset().filter(
+            activo=True,
+            subcategoria__nombre='analisis_datos'
+        )
+        
+        limit = request.query_params.get('limit')
+        if limit:
+            try:
+                servicios = servicios[:int(limit)]
+            except ValueError:
+                pass
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='informes-tecnicos')
+    def informes_tecnicos(self, request):
+        """Obtener servicios de Informes técnicos y posicionamiento temático - OPTIMIZADO"""
+        servicios = self.get_queryset().filter(
+            activo=True,
+            subcategoria__nombre='informes_tecnicos'
         )
         
         limit = request.query_params.get('limit')
@@ -1045,16 +1110,105 @@ class ServicioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-
+    @action(detail=False, methods=['get'], url_path='por-categoria')
+    def servicios_por_categoria(self, request):
+        """Obtener todos los servicios agrupados por categoría - OPTIMIZADO"""
+        from django.db.models import Count
+        
+        # Obtener todas las categorías con servicios activos
+        categorias_con_servicios = SubcategoriaServicio.objects.annotate(
+            total_servicios=Count('servicios', filter=models.Q(servicios__activo=True))
+        ).filter(total_servicios__gt=0).order_by('id')
+        
+        resultado = []
+        
+        for categoria in categorias_con_servicios:
+            servicios = self.get_queryset().filter(
+                activo=True,
+                subcategoria=categoria
+            )
+            
+            serializer = self.get_serializer(servicios, many=True)
+            
+            resultado.append({
+                'categoria': {
+                    'id': categoria.id,
+                    'nombre': categoria.nombre,
+                    'nombre_display': categoria.get_nombre_display(),
+                    'descripcion': categoria.descripcion,
+                    'icono': categoria.icono,
+                    'total_servicios': servicios.count()
+                },
+                'servicios': serializer.data
+            })
+        
+        return Response(resultado)
+    
+    @action(detail=False, methods=['get'], url_path='resumen-estadisticas')
+    def resumen_estadisticas(self, request):
+        """Obtener resumen estadístico de servicios - OPTIMIZADO"""
+        from django.db.models import Count, Q
+        
+        queryset = self.get_queryset()
+        
+        total_servicios = queryset.count()
+        total_activos = queryset.filter(activo=True).count()
+        total_inactivos = queryset.filter(activo=False).count()
+        
+        # Servicios por categoría
+        servicios_por_categoria = queryset.values(
+            'subcategoria__nombre',
+            'subcategoria__id'
+        ).annotate(
+            total=Count('id'),
+            activos=Count('id', filter=Q(activo=True)),
+            inactivos=Count('id', filter=Q(activo=False))
+        ).order_by('subcategoria__id')
+        
+        # Formatear resultado
+        categorias_formateadas = []
+        for item in servicios_por_categoria:
+            try:
+                subcategoria = SubcategoriaServicio.objects.get(id=item['subcategoria__id'])
+                categorias_formateadas.append({
+                    'categoria_id': item['subcategoria__id'],
+                    'categoria_nombre': subcategoria.get_nombre_display(),
+                    'total': item['total'],
+                    'activos': item['activos'],
+                    'inactivos': item['inactivos']
+                })
+            except SubcategoriaServicio.DoesNotExist:
+                continue
+        
+        return Response({
+            'totales': {
+                'total_servicios': total_servicios,
+                'activos': total_activos,
+                'inactivos': total_inactivos
+            },
+            'por_categoria': categorias_formateadas
+        })
 
 # ============================================
 # NEWSLETTER VIEWSET
 # ============================================
 
+# En views.py - Reemplaza la clase NewsletterSubscriberViewSet
+
 class NewsletterSubscriberViewSet(viewsets.ModelViewSet):
     queryset = NewsletterSubscriber.objects.all()
     serializer_class = NewsletterSubscriberSerializer
-    permission_classes = [AllowAny]
+    
+    def get_permissions(self):
+        """
+        Configura permisos según la acción:
+        - create: AllowAny (cualquiera puede suscribirse)
+        - confirmar, cancelar: AllowAny (usan tokens)
+        - list, retrieve, update, destroy: IsAuthenticated + IsAdminUser
+        """
+        if self.action in ['create', 'confirmar', 'cancelar']:
+            return [AllowAny()]
+        return [IsAuthenticated(), permissions.IsAdminUser()]
     
     def create(self, request, *args, **kwargs):
         """Suscribirse al newsletter"""
@@ -1099,6 +1253,20 @@ class NewsletterSubscriberViewSet(viewsets.ModelViewSet):
                 {'error': 'Error al enviar el email de confirmación'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Listar suscriptores - SOLO PARA ADMINS
+        Requiere autenticación y permisos de admin
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Ordenar por fecha de suscripción descendente
+        queryset = queryset.order_by('-fecha_suscripcion')
+        
+        serializer = self.get_serializer(queryset, many=True)
+        
+        return Response(serializer.data)
     
     @action(detail=False, methods=['post'], url_path='confirmar/(?P<token>[^/.]+)')
     def confirmar(self, request, token=None):
@@ -1176,6 +1344,53 @@ class NewsletterSubscriberViewSet(viewsets.ModelViewSet):
                 {'error': 'Noticia no encontrada'},
                 status=status.HTTP_404_NOT_FOUND
             )
+    @action(detail=False, methods=['post'])
+    def enviar_correo_personalizado(self, request):
+        """Enviar correo personalizado a todos los suscriptores (solo para admins)"""
+        if not request.user.is_staff:
+            return Response(
+                {'error': 'No tienes permisos para esta acción'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        asunto = request.data.get('asunto')
+        contenido = request.data.get('contenido')
+        incluir_imagen = request.data.get('incluir_imagen', False)
+        imagen_url = request.data.get('imagen_url', '')
+        
+        if not asunto or not contenido:
+            return Response(
+                {'error': 'El asunto y el contenido son obligatorios'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        subscribers = NewsletterSubscriber.objects.filter(
+            activo=True,
+            confirmado=True
+        ).only('email', 'nombre')
+        
+        if not subscribers.exists():
+            return Response(
+                {'message': 'No hay suscriptores activos y confirmados'},
+                status=status.HTTP_200_OK
+            )
+        
+        from .newsletter_utils import send_custom_newsletter
+
+        
+        success_count = send_custom_newsletter(
+            asunto=asunto,
+            contenido=contenido,
+            subscribers=subscribers,
+            incluir_imagen=incluir_imagen,
+            imagen_url=imagen_url if imagen_url else None
+        )
+        
+        return Response({
+            'message': f'Correo enviado a {success_count} suscriptores',
+            'total': subscribers.count(),
+            'success': success_count
+        }, status=status.HTTP_200_OK)
 
 # Agregar estos imports al inicio de views.py
 from .models import Contacto
