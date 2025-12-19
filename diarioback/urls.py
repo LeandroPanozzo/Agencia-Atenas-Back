@@ -26,7 +26,7 @@ from .views import (
     TrabajadorList,
     VerifyTokenView,
     NewsletterSubscriberViewSet,
-    upload_image
+    upload_image  # ¡Asegúrate de que está importada!
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -88,7 +88,11 @@ urlpatterns = [
     path('trabajadores/', TrabajadorList.as_view(), name='trabajador-list'),
     
     # === UPLOAD DE IMÁGENES ===
+    # ⭐ RUTA ACTUAL (usada en otros lugares)
     path('upload/', upload_image, name='upload_image'),
+    
+    # ⭐ RUTA ESPECÍFICA PARA TINYMCE (lo que está buscando tu frontend)
+    path('noticias/upload-image/', upload_image, name='noticias-upload-image'),
     
     # === NOTICIAS - DETALLE ===
     re_path(

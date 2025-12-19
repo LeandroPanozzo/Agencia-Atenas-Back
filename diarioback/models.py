@@ -104,18 +104,28 @@ IMGBB_UPLOAD_URL = 'https://api.imgbb.com/1/upload'
 
 def upload_to_imgbb(image):
     try:
+        print("📤 Iniciando upload_to_imgbb...")
+        
+        # Manejar diferentes tipos de entrada
         if isinstance(image, InMemoryUploadedFile):
             image_data = image.read()
+            print("📤 Tipo: InMemoryUploadedFile")
         elif isinstance(image, str) and os.path.isfile(image):
             with open(image, 'rb') as image_file:
                 image_data = image_file.read()
+            print("📤 Tipo: File path")
         elif hasattr(image, 'path') and os.path.isfile(image.path):
             with open(image.path, 'rb') as image_file:
                 image_data = image_file.read()
+            print("📤 Tipo: Django File with path")
         else:
             image_data = image.read() if hasattr(image, 'read') else image
+            print("📤 Tipo: Unknown/Other")
+        
+        print(f"📤 Tamaño datos: {len(image_data)} bytes")
         
         image_base64 = base64.b64encode(image_data).decode('utf-8')
+        print(f"📤 Base64 length: {len(image_base64)}")
         
         data = {
             'key': IMGBB_API_KEY,
@@ -123,25 +133,35 @@ def upload_to_imgbb(image):
             'expiration': 0
         }
         
-        response = requests.post(IMGBB_UPLOAD_URL, data=data)
+        print("📤 Enviando a ImgBB API...")
+        response = requests.post(IMGBB_UPLOAD_URL, data=data, timeout=30)
+        
+        print(f"📤 Respuesta ImgBB: {response.status_code}")
         
         if response.status_code == 429:
-            print("Error 429: Demasiadas solicitudes, esperando antes de reintentar...")
+            print("⚠️ Error 429: Demasiadas solicitudes, esperando antes de reintentar...")
             time.sleep(60)
             return upload_to_imgbb(image)
         
         if response.status_code == 200:
             response_data = response.json()
+            print(f"📤 ImgBB response data: {response_data}")
+            
             if response_data.get('success'):
-                return response_data['data']['url']
+                url = response_data['data']['url']
+                print(f"✅ URL obtenida: {url}")
+                return url
             else:
-                print(f"Error al subir imagen a ImgBB: {response_data.get('error', {}).get('message', 'Error desconocido')}")
+                error_msg = response_data.get('error', {}).get('message', 'Error desconocido')
+                print(f"❌ Error ImgBB: {error_msg}")
         else:
-            print(f"Error HTTP {response.status_code} al subir imagen a ImgBB")
-            print(f"Respuesta: {response.text}")
+            print(f"❌ Error HTTP {response.status_code} al subir imagen a ImgBB")
+            print(f"❌ Respuesta: {response.text}")
         
     except Exception as e:
-        print(f"Excepción al subir imagen a ImgBB: {str(e)}")
+        print(f"❌ Excepción en upload_to_imgbb: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
     return None
 
@@ -677,7 +697,7 @@ from django.apps import apps
 def crear_subcategorias_base(sender, **kwargs):
     if sender.name == 'diarioback':  # Reemplaza 'tu_app' con el nombre de tu aplicación
         try:
-            SubcategoriaServicio = apps.get_model('tu_app', 'SubcategoriaServicio')
+            SubcategoriaServicio = apps.get_model('diarioback', 'SubcategoriaServicio')
             SubcategoriaServicio.crear_subcategorias_base()
             print("🎯 Categorías de servicios creadas/verificadas automáticamente")
         except Exception as e:

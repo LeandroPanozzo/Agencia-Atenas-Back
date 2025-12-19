@@ -110,10 +110,6 @@ class PublicidadViewSet(viewsets.ModelViewSet):
 # VIEWSET DE NOTICIAS
 # ============================================
 
-# En views.py - Reemplaza la clase NoticiaViewSet
-
-# En views.py - Reemplaza la clase NoticiaViewSet
-
 class NoticiaViewSet(viewsets.ModelViewSet):
     """
     ViewSet optimizado para gestionar noticias con carga ultrarrápida
@@ -780,40 +776,72 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 # UPLOAD DE IMÁGENES
 # ============================================
 
+# En views.py - actualiza la función upload_image con mejor logging
 @api_view(['POST'])
 def upload_image(request):
+    print("\n" + "="*50)
+    print("📤 RECIBIENDO IMAGEN PARA UPLOAD")
+    print("="*50)
+    
+    # DEBUG: Ver qué viene en la request
+    print(f"📤 Método: {request.method}")
+    print(f"📤 Headers: {dict(request.headers)}")
+    print(f"📤 FILES keys: {list(request.FILES.keys())}")
+    print(f"📤 POST keys: {list(request.POST.keys())}")
+    
+    # Verificar autenticación si es necesaria
+    if not request.user.is_authenticated:
+        print("❌ Usuario no autenticado")
+        return Response({
+            'error': 'Autenticación requerida para subir imágenes'
+        }, status=status.HTTP_401_UNAUTHORIZED)
+    
     if 'image' not in request.FILES:
-        return Response({'error': 'No image file found'}, status=status.HTTP_400_BAD_REQUEST)
+        print("❌ No se encontró 'image' en request.FILES")
+        print(f"❌ FILES disponibles: {list(request.FILES.keys())}")
+        return Response({
+            'error': 'No image file found',
+            'available_files': list(request.FILES.keys())
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     image = request.FILES['image']
-
+    
+    # DEBUG: Información de la imagen
+    print(f"📤 Nombre archivo: {image.name}")
+    print(f"📤 Tamaño: {image.size} bytes")
+    print(f"📤 Content-Type: {image.content_type}")
+    
     # Verificar tipo de archivo
-    if not image.name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+    allowed_types = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp']
+    if image.content_type not in allowed_types:
+        print(f"❌ Tipo de archivo no soportado: {image.content_type}")
         return Response({
-            'error': 'Tipo de archivo no soportado. Por favor suba una imagen PNG, JPG, JPEG, GIF o WebP.'
+            'error': f'Tipo de archivo no soportado. Permitidos: {", ".join(allowed_types)}'
         }, status=status.HTTP_400_BAD_REQUEST)
 
     # Verificar tamaño del archivo (ImgBB tiene un límite de 32MB)
     if image.size > 32 * 1024 * 1024:  # 32MB en bytes
+        print(f"❌ Archivo demasiado grande: {image.size} bytes")
         return Response({
             'error': 'El archivo es demasiado grande. El tamaño máximo es 32MB.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
     # Subir directamente a ImgBB
+    print("📤 Subiendo a ImgBB...")
     uploaded_url = upload_to_imgbb(image)
 
     if uploaded_url:
+        print(f"✅ Imagen subida exitosamente: {uploaded_url}")
         return Response({
             'success': True, 
             'url': uploaded_url,
             'message': 'Imagen subida exitosamente a ImgBB'
         })
     else:
+        print("❌ Error al subir la imagen a ImgBB")
         return Response({
             'error': 'Error al subir la imagen a ImgBB. Verifique que la imagen sea válida.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 # ============================================
 # REDIRECCIÓN
 # ============================================
