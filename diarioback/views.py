@@ -863,14 +863,6 @@ class SubcategoriaServicioViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
 
-# En views.py - Reemplaza toda la clase ServicioViewSet
-
-# En views.py - Reemplaza toda la clase ServicioViewSet
-
-# En views.py - Reemplaza toda la clase ServicioViewSet
-
-# En views.py - Reemplaza toda la clase ServicioViewSet
-
 class ServicioViewSet(viewsets.ModelViewSet):
     """
     ViewSet optimizado para gestionar servicios con carga rápida

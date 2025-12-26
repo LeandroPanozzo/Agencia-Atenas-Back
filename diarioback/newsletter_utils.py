@@ -6,8 +6,9 @@ def send_mailjet_email(to_email, subject, html_content, from_email=None):
     """
     Envía un email usando Mailjet
     """
+    # ⭐ CAMBIO: Usar tu nuevo correo por defecto
     if from_email is None:
-        from_email = settings.DEFAULT_FROM_EMAIL
+        from_email = "agenciaatenasnewsletter@gmail.com"
     
     mailjet = Client(
         auth=(settings.MAILJET_API_KEY, settings.MAILJET_SECRET_KEY),
@@ -18,8 +19,8 @@ def send_mailjet_email(to_email, subject, html_content, from_email=None):
         'Messages': [
             {
                 "From": {
-                    "Email": from_email,
-                    "Name": "Agencia Atenas"  # Cambia esto por el nombre de tu diario
+                    "Email": from_email,  # agenciaatenasnewsletter@gmail.com
+                    "Name": "Agencia Atenas"
                 },
                 "To": [
                     {

@@ -3,7 +3,6 @@ from pathlib import Path
 import os
 from datetime import timedelta
 import dj_database_url
-# import dj_database_url  # Ya no necesitas esto para SQLite
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -62,13 +61,13 @@ TEMPLATES = [
 WSGI_APPLICATION = 'diario_back_api.wsgi.application'
 
 # ✅ CONFIGURACIÓN CON SQLITE
-
 DATABASES = {
     'default': dj_database_url.config(
         default='sqlite:///db.sqlite3',
         conn_max_age=600
     )
 }
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -124,33 +123,21 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800
 
-# Email settings
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'diarioelcentinelasoporte@gmail.com')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'opjm aahz andp mmlj')
+# ⭐ CONFIGURACIÓN DE MAILJET - NUEVA
+MAILJET_API_KEY = 'e8374110e20460aaab8ea1ee676b57d6'
+MAILJET_SECRET_KEY = '55c965c908edc0d11fa9c1950de95687'
 
-# Configuración de Mailjet
-MAILJET_API_KEY = '9d71630638e56a42e17e1c55556990f9'
-MAILJET_SECRET_KEY = 'b7f6131b0772d6981956f3d94a600ecf'
-
-# Email settings
+# ⭐ EMAIL SETTINGS - ACTUALIZADO
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'in-v3.mailjet.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = MAILJET_API_KEY
 EMAIL_HOST_PASSWORD = MAILJET_SECRET_KEY
-DEFAULT_FROM_EMAIL = 'wacallowacallo@gmail.com'
-
-
-
+DEFAULT_FROM_EMAIL = 'agenciaatenasnewsletter@gmail.com'  # ⭐ TU NUEVO CORREO
 
 STATIC_URL = '/static/'
 
 if not DEBUG:
     STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
     STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
